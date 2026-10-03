@@ -60,16 +60,20 @@ for runtime in "$app"/Contents/Frameworks/libswift*.dylib; do
   fi
 done
 python3 scripts/snapshot.py provenance "$app"
+# Release resource copying can strip Preferences' original signed entitlements.
+# Sign the copied bundle first so the outer app seal covers its final signature.
+prefs="$app/Contents/Resources/Preferences.prefPane"
+[[ -d "$prefs" ]]
+codesign --force --sign - --timestamp=none --generate-entitlement-der \
+  --entitlements source/OSX/Gureum.entitlements "$prefs"
 # Adding provenance/resources changes the outer seal. Preserve upstream entitlements.
-codesign --force --sign - --timestamp=none \
+codesign --force --sign - --timestamp=none --generate-entitlement-der \
   --entitlements source/OSX/Gureum.entitlements "$app"
 codesign --verify --deep --strict --verbose=2 "$app" 2>&1 \
   | tee diagnostics/codesign-verify.txt
 codesign --display --verbose=4 "$app" 2> diagnostics/codesign-details.txt
 codesign --display --entitlements :- "$app" > diagnostics/entitlements.plist
 # Preferences is inside Resources, so outer --deep verification is not sufficient.
-prefs="$app/Contents/Resources/Preferences.prefPane"
-[[ -d "$prefs" ]]
 codesign --verify --strict --verbose=2 "$prefs" 2>&1 | tee diagnostics/preferences-verify.txt
 codesign --display --verbose=4 "$prefs" 2> diagnostics/preferences-signature.txt
 codesign --display --entitlements :- "$prefs" > diagnostics/preferences-entitlements.plist

@@ -77,6 +77,20 @@ Release 빌드/서명/패키징이 성공했다는 증거가 아닙니다.
   나머지 Mach-O 및 최종 앱의 엄격한 arm64·서명 검사는 유지합니다.
 - snapshot artifact와 Release는 생성하지 않았습니다. 수정 후 재검증합니다.
 
+## 세 번째 실제 Actions 실행
+
+- [실행 37094544382](https://github.com/blood72/gureum-personal-snapshots/actions/runs/37094544382),
+  builder `1daaf8e5e48963b4673060322bebcac8296e2457`.
+- Swift concurrency 런타임의 arm64 slice 보존·재서명과 전체 Mach-O arm64 검사가 성공했습니다.
+  앱, Preferences 및 프레임워크의 codesign 검증도 성공했습니다.
+- 이후 Preferences의 entitlement 출력을 plist로 읽는 검사에서 실패했습니다.
+  빌드 로그에는 원래 Preferences에 entitlements를 지정해 서명한 뒤 Release Resources
+  복사 과정에서 strip하는 명령이 있습니다. 최종 복사본에 원본
+  `OSX/Gureum.entitlements`를 명시해 ad-hoc 재서명한 뒤 바깥 앱을 서명하도록 수정합니다.
+- 상세 로그는 확보했으며 진단 artifact의 새 저장소
+  `productionresultssa2.blob.core.windows.net`은 클라우드에서 프록시 403으로 차단됐습니다.
+  해당 호스트를 환경 설정 초안에 추가했습니다. 다음 실행에서 검증을 계속합니다.
+
 전체 SHA 입력 경로는 Linux에서 지원 스크립트를 실제 실행해 확인했습니다.
 `46c62e51a311c89ee084ce14eb8071b6d81f765d`의 공식 main 조상 확인, 재귀 서브모듈
 체크아웃, 숫자 bundle 버전 `1.0.1`과 전체 원본 SHA의 분리 기록이 성공했습니다.
