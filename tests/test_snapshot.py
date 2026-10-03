@@ -120,11 +120,13 @@ class Inputs(unittest.TestCase):
 class Packaging(unittest.TestCase):
     @staticmethod
     def write_pkg(path, data):
-        package = (f'<pkg-info version="{data["pkg_version"]}"><bundle '
+        package = (f'<pkg-info version="{data["pkg_version"]}" install-location="/Library/Input Methods"><bundle '
                    f'id="org.youknowone.inputmethod.Gureum" CFBundleVersion="{data["bundle_version"]}" '
                    f'CFBundleShortVersionString="{data["short_version"]}"/></pkg-info>').encode()
         distribution = (f'<installer-gui-script><product version="{data["pkg_version"]}"/>'
-                        f'<pkg-ref version="{data["pkg_version"]}"/></installer-gui-script>').encode()
+                        f'<pkg-ref version="{data["pkg_version"]}"/><options hostArchitectures="arm64"/>'
+                        f'<volume-check><allowed-os-versions><os-version min="{data["minimum_macos"]}"/>'
+                        '</allowed-os-versions></volume-check></installer-gui-script>').encode()
         toc = '<xar><toc>'
         offset = 0
         for name, content in (("PackageInfo", package), ("Distribution", distribution)):
@@ -138,15 +140,20 @@ class Packaging(unittest.TestCase):
                          + compressed + package + distribution)
 
     def test_installer_versions_reject_suffixes_and_mismatches(self):
-        data = snapshot.identity("a" * 40, "1", "1.13.2")
+        data = snapshot.identity("a" * 40, "1", "1.13.2") | {"minimum_macos": "11.0"}
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "fixture.pkg"
             self.write_pkg(path, data)
-            snapshot.verify_flat_pkg(path, data)
+            with patch('sys.stdout', new_callable=io.StringIO) as output:
+                snapshot.verify_flat_pkg(path, data)
+                self.assertEqual(output.getvalue(), "")  # Keep artifact-inspection.json valid JSON.
             for key in ("pkg_version", "bundle_version", "short_version"):
                 self.write_pkg(path, data | {key: data[key] + "-snapshot"})
                 with self.subTest(key=key), self.assertRaises(RuntimeError):
                     snapshot.verify_flat_pkg(path, data)
+            self.write_pkg(path, data | {"minimum_macos": "10.13"})
+            with self.assertRaisesRegex(RuntimeError, "OS/architecture"):
+                snapshot.verify_flat_pkg(path, data)
             self.write_pkg(path, data)
             with self.assertRaisesRegex(RuntimeError, "no PackageInfo"):
                 snapshot.verify_pkg_xml([], ET.fromstring('<installer-gui-script/>'), data)

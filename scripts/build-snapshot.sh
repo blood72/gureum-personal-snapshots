@@ -108,15 +108,28 @@ python3 scripts/snapshot.py verify-app "$app"
 stem=$(python3 -c 'import json; print(json.load(open("dist/metadata.json"))["stem"])')
 # tar preserves app symlinks/modes; never upload the bare .app with upload-artifact.
 COPYFILE_DISABLE=1 tar -czf "dist/$stem.app.tar.gz" -C "$(dirname "$app")" Gureum.app
-productbuild --version "$pkg_version" --component "$app" '/Library/Input Methods' "dist/$stem.unsigned.pkg"
+# productbuild --component infers a separate component version from the app.
+# Set both installer versions explicitly; preserve the effective OS/architecture gate.
+python3 scripts/snapshot.py installer-requirements
+pkgbuild --component "$app" --install-location '/Library/Input Methods' \
+  --identifier org.youknowone.inputmethod.Gureum --version "$pkg_version" \
+  build/Gureum-component.pkg
+productbuild --identifier org.youknowone.inputmethod.Gureum --version "$pkg_version" \
+  --product build/installer-requirements.plist --package build/Gureum-component.pkg \
+  "dist/$stem.unsigned.pkg"
 python3 scripts/snapshot.py finalize
-python3 scripts/verify-artifacts.py dist "$GITHUB_SHA" | tee diagnostics/artifact-inspection.json
 # Expand the installer to ensure productbuild preserved the signed app payload.
 pkg_inspection="$root/build/pkg-inspection"
 pkgutil --expand-full "dist/$stem.unsigned.pkg" "$pkg_inspection"
+cp "$pkg_inspection/Distribution" diagnostics/pkg-Distribution.xml
+while IFS= read -r -d '' package_info; do
+  cp "$package_info" "diagnostics/$(basename "$(dirname "$package_info")")-PackageInfo.xml"
+done < <(find "$pkg_inspection" -type f -name PackageInfo -print0)
 python3 scripts/snapshot.py verify-pkg "$pkg_inspection" | tee diagnostics/pkg-versions.txt
+python3 scripts/verify-artifacts.py dist "$GITHUB_SHA" | tee diagnostics/artifact-inspection.json
 # Record installed tool documentation and ensure official update logic stayed intact.
 MANWIDTH=100 man pkgbuild | col -b > diagnostics/pkgbuild-man.txt
+MANWIDTH=100 man productbuild | col -b > diagnostics/productbuild-man.txt
 git -C source diff --exit-code -- OSX/UpdateManager.swift OSXCore/BundleVersion.swift \
   OSXCore/Configuration.swift Preferences/PreferenceViewController.swift
 packaged_app=$(find "$pkg_inspection" -type d -name Gureum.app)

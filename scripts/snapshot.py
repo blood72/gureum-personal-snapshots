@@ -111,7 +111,9 @@ def verify_pkg_xml(packages, distribution, data):
         raise RuntimeError("Expanded installer has no PackageInfo")
     for package in packages:
         if package.get("version") != data["pkg_version"]:
-            raise RuntimeError("Installer component version mismatch")
+            raise RuntimeError(f'Installer component version mismatch: expected {data["pkg_version"]}, got {package.get("version")}')
+        if package.get("install-location") != "/Library/Input Methods":
+            raise RuntimeError("Installer install location mismatch")
         bundles = [bundle for bundle in package.findall("bundle")
                    if bundle.get("id") == "org.youknowone.inputmethod.Gureum"]
         if len(bundles) != 1 or any(bundle.get("CFBundleVersion") != data["bundle_version"]
@@ -124,12 +126,17 @@ def verify_pkg_xml(packages, distribution, data):
     refs = [ref for ref in distribution.findall("pkg-ref") if ref.get("version") is not None]
     if not refs or any(ref.get("version") != data["pkg_version"] for ref in refs):
         raise RuntimeError("Installer distribution component version mismatch")
-    print(f'Installer numeric component/product versions: {data["pkg_version"]}')
+    options = distribution.find("options")
+    minimums = distribution.findall(".//allowed-os-versions/os-version")
+    if (options is None or options.get("hostArchitectures") != "arm64"
+            or len(minimums) != 1 or minimums[0].get("min") != data["minimum_macos"]):
+        raise RuntimeError("Installer OS/architecture requirements mismatch")
 
 
 def verify_pkg_versions(directory, data):
     verify_pkg_xml([ET.parse(path).getroot() for path in sorted(directory.rglob("PackageInfo"))],
                    ET.parse(directory / "Distribution").getroot(), data)
+    print(f'Installer numeric component/product versions: {data["pkg_version"]}')
 
 
 def verify_flat_pkg(path, data):
@@ -442,6 +449,10 @@ def main():
         prepare_source()
     elif command == "verify-pkg":
         verify_pkg_versions(Path(sys.argv[2]), load_metadata())
+    elif command == "installer-requirements":
+        data = load_metadata()
+        with Path("build/installer-requirements.plist").open("wb") as file:
+            plistlib.dump({"os": [data["minimum_macos"]], "arch": ["arm64"]}, file)
     elif command == "provenance":
         provenance(Path(sys.argv[2]))
     elif command == "verify-app":

@@ -188,3 +188,22 @@ GureumMenu의 수동 확인은 공식 feed와의 문자열 불일치를 기준�
 
 라이선스·LGPL 재링크 자료·로고/아이콘 이용 조건의 추가 검토는 다음 작업으로 남습니다.
 이번 버전 변경과 기존 고지 보존은 라이선스 검토 완료나 배포 권한 확인을 뜻하지 않습니다.
+
+### 표시 버전 첫 실제 실행과 수정
+
+- [실행 37099517668](https://github.com/blood72/gureum-personal-snapshots/actions/runs/37099517668),
+  builder `691e1d4228ce0732421f69cb9b4b75aa39dc709d`.
+- 지원 테스트 16개, upstream Debug 테스트 45개(실패 0개), Release 빌드,
+  숫자/표시 버전과 앱·Preferences의 ad-hoc 서명/entitlement 검사가 통과했습니다.
+- productbuild는 pkg를 생성했지만 내부 `PackageInfo` component 버전이 metadata의
+  `1.0.1`과 달라 실제 산출물 검증에서 중단했습니다. `productbuild --version`은 product의
+  버전을 지정하며 자동 생성 component의 버전을 함께 지정하는 옵션이 아니었습니다.
+- `pkgbuild --version`으로 component를 따로 만들고 `productbuild --version --package`로
+  product를 생성하도록 수정합니다. requirements plist로 기존 arm64/최소 macOS 조건을
+  명시하고 Distribution의 실제 조건과 설치 경로도 검사합니다.
+- pkg XML을 진단 artifact에 보존하고, 검증 helper의 부수 출력으로 JSON 검사 결과가
+  깨지지 않도록 수정했습니다. 로컬 회귀 테스트와 정적 검사 후 다시 실행합니다.
+- [productbuild man page 미러](https://github.com/keith/xcode-man-pages/blob/main/docs/productbuild.1.html)의
+  product-version, package, product requirements 옵션을 확인했습니다. 실제 러너의
+  pkgbuild/productbuild man page도 진단 artifact에 보존합니다.
+- 실패한 실행은 스냅샷 artifact 업로드와 Release 게시를 건너뛰었습니다.
