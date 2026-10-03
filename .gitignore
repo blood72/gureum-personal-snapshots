@@ -1,0 +1,6 @@
+/source/
+/build/
+/dist/
+/diagnostics/
+__pycache__/
+*.py[cod]
