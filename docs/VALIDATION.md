@@ -91,6 +91,22 @@ Release 빌드/서명/패키징이 성공했다는 증거가 아닙니다.
   `productionresultssa2.blob.core.windows.net`은 클라우드에서 프록시 403으로 차단됐습니다.
   해당 호스트를 환경 설정 초안에 추가했습니다. 다음 실행에서 검증을 계속합니다.
 
+## 네 번째 실제 Actions 실행
+
+- [실행 37095131394](https://github.com/blood72/gureum-personal-snapshots/actions/runs/37095131394),
+  builder `59aa8311333df5e88053d331bb15ddc61ae0c35f`.
+- 명시적으로 재서명해도 Preferences entitlement 출력은 0바이트였고 같은 검사에서 실패했습니다.
+  복사 과정만의 문제가 아니었습니다. Apple의 현재 코드 서명 구현은 main executable이
+  아닌 Mach-O 라이브러리/번들에 entitlement를 넣으려면 별도 옵션을 요구합니다.
+  [Apple SecCodeSigner.h](https://github.com/apple-oss-distributions/Security/blob/main/OSX/libsecurity_codesigning/lib/SecCodeSigner.h)의
+  `kSecCodeSignerForceLibraryEntitlements` 설명과
+  [signer.cpp](https://github.com/apple-oss-distributions/Security/blob/main/OSX/libsecurity_codesigning/lib/signer.cpp)의
+  `mainBinary || state.mForceLibraryEntitlements` 조건을 확인했습니다.
+- Preferences 서명에 `--force-library-entitlements`를 추가합니다. 비용이 큰 Xcode 빌드
+  전에 작은 arm64 Mach-O bundle을 실제로 서명하고 원본 entitlement와 비교하는 검증도
+  추가해 이 전제조건을 먼저 확인합니다. 실제 Preferences의 서명·entitlement 검사는 유지합니다.
+- 진단 artifact 저장소 접근은 이후 정상화돼 앞선 실행들의 파일을 직접 확인했습니다.
+
 전체 SHA 입력 경로는 Linux에서 지원 스크립트를 실제 실행해 확인했습니다.
 `46c62e51a311c89ee084ce14eb8071b6d81f765d`의 공식 main 조상 확인, 재귀 서브모듈
 체크아웃, 숫자 bundle 버전 `1.0.1`과 전체 원본 SHA의 분리 기록이 성공했습니다.

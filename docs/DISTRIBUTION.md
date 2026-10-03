@@ -31,8 +31,11 @@
 단위 테스트와 서명·아키텍처 검사가 실제 입력기 동작 검증을 대체하지는 않습니다.
 TextEdit와 Terminal 등 실제 사용할 앱에서 별도로 확인해야 합니다.
 
-upstream 코드와 설정은 그대로 빌드합니다. Firebase 초기화·Crashlytics 등 upstream의
-네트워크/진단 동작을 제거하거나 별도 개인 서비스로 바꾸는 워크플로는 아닙니다.
+upstream 앱 로직은 변경하지 않습니다. 빌드 옵션으로 arm64, macOS 11 배포 대상,
+숫자 버전과 ad-hoc 서명을 지정합니다. 포함된 universal Swift 런타임은 arm64 slice를
+남기고 재서명하며, Preferences 번들에는 upstream entitlement를 명시해 서명합니다.
+Firebase 초기화·Crashlytics 등 upstream의 네트워크/진단 동작은 제거하거나 별도
+개인 서비스로 바꾸지 않습니다.
 
 ## 참고
 

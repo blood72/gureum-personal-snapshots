@@ -3,13 +3,33 @@ set -euo pipefail
 
 [[ "$(uname -s)" == Darwin && "$(uname -m)" == arm64 ]]
 [[ -d "$DEVELOPER_DIR" ]]
-mkdir -p diagnostics dist
+mkdir -p diagnostics dist build
 {
   sw_vers
   xcodebuild -version
   xcrun --sdk macosx --show-sdk-version
   printf 'Runner image: %s %s\n' "${ImageOS:-unknown}" "${ImageVersion:-unknown}"
 } | tee diagnostics/toolchain.txt
+
+# Check the actual tool's handling of non-executable Mach-O entitlements early.
+# macOS 15+ requires an explicit option for library/bundle entitlements.
+printf 'int signing_probe(void) { return 0; }\n' > build/signing-probe.c
+xcrun clang -arch arm64 -bundle build/signing-probe.c -o build/signing-probe.bundle
+codesign --force --sign - --timestamp=none --generate-entitlement-der \
+  --force-library-entitlements --entitlements source/OSX/Gureum.entitlements \
+  build/signing-probe.bundle
+codesign --verify --strict --verbose=2 build/signing-probe.bundle
+codesign --display --entitlements :- build/signing-probe.bundle \
+  > diagnostics/signing-probe-entitlements.plist
+python3 - <<'PY'
+import plistlib
+from pathlib import Path
+expected = plistlib.loads(Path('source/OSX/Gureum.entitlements').read_bytes())
+actual = plistlib.loads(Path('diagnostics/signing-probe-entitlements.plist').read_bytes())
+if any(actual.get(key) != value for key, value in expected.items()):
+    raise SystemExit('Mach-O bundle signing probe lost required entitlements')
+print('Mach-O bundle signing/entitlements probe: passed')
+PY
 
 version=$(python3 -c 'import json; print(json.load(open("dist/metadata.json"))["bundle_version"])')
 root="$PWD"
@@ -60,12 +80,12 @@ for runtime in "$app"/Contents/Frameworks/libswift*.dylib; do
   fi
 done
 python3 scripts/snapshot.py provenance "$app"
-# Release resource copying can strip Preferences' original signed entitlements.
+# Preferences is a Mach-O library bundle, requiring explicit library entitlements.
 # Sign the copied bundle first so the outer app seal covers its final signature.
 prefs="$app/Contents/Resources/Preferences.prefPane"
 [[ -d "$prefs" ]]
 codesign --force --sign - --timestamp=none --generate-entitlement-der \
-  --entitlements source/OSX/Gureum.entitlements "$prefs"
+  --force-library-entitlements --entitlements source/OSX/Gureum.entitlements "$prefs"
 # Adding provenance/resources changes the outer seal. Preserve upstream entitlements.
 codesign --force --sign - --timestamp=none --generate-entitlement-der \
   --entitlements source/OSX/Gureum.entitlements "$app"
