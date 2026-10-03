@@ -41,6 +41,24 @@ xcodebuild "${common[@]}" -disableAutomaticPackageResolution \
 
 app="$root/build/DerivedData/Build/Products/Release/Gureum.app"
 [[ -d "$app" ]]
+# Xcode's Swift concurrency back-deployment runtime contains Intel and arm64 slices.
+# Keep only the verified arm64 slice of top-level Swift runtimes, then re-sign them.
+# Other Mach-O files still have to pass the strict arm64 check without alteration.
+for runtime in "$app"/Contents/Frameworks/libswift*.dylib; do
+  [[ -f "$runtime" ]] || continue
+  [[ ! -L "$runtime" ]]
+  runtime_archs=$(lipo -archs "$runtime")
+  printf '%s: %s\n' "$(basename "$runtime")" "$runtime_archs" \
+    | tee -a diagnostics/swift-runtime-slices.txt
+  if [[ "$runtime_archs" != arm64 ]]; then
+    lipo "$runtime" -verify_arch arm64
+    lipo "$runtime" -thin arm64 -output "$runtime.arm64"
+    chmod "$(stat -f '%Lp' "$runtime")" "$runtime.arm64"
+    mv "$runtime.arm64" "$runtime"
+    codesign --force --sign - --timestamp=none "$runtime"
+    codesign --verify --strict --verbose=2 "$runtime"
+  fi
+done
 python3 scripts/snapshot.py provenance "$app"
 # Adding provenance/resources changes the outer seal. Preserve upstream entitlements.
 codesign --force --sign - --timestamp=none \

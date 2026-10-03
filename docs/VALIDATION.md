@@ -64,6 +64,19 @@ Release 빌드/서명/패키징이 성공했다는 증거가 아닙니다.
 정상화됐습니다. 첫 실행 로그와 진단 파일을 다운로드해 위 실패 원인을 확인했습니다.
 새 자격 증명은 추가하지 않았습니다.
 
+## 두 번째 실제 Actions 실행
+
+- [실행 37094222756](https://github.com/blood72/gureum-personal-snapshots/actions/runs/37094222756),
+  builder `c063fd537b7688f736426b57e911bd75bff205e9`.
+- macOS 11 배포 대상으로 Debug 테스트와 Release 빌드가 성공했고 Intel 전용 구형
+  Swift 런타임 문제는 해결됐습니다. 이후 `libswift_Concurrency.dylib: x86_64 arm64`가
+  검출되어 arm64-only 검사에서 실패했습니다. Xcode가 복사한 concurrency 역호환
+  런타임은 universal 바이너리였습니다.
+- 포함된 최상위 `libswift*.dylib`에 실제 arm64 slice가 있는지 먼저 확인하고,
+  `lipo -thin arm64`로 해당 slice를 보존한 뒤 ad-hoc 재서명·검증하도록 수정했습니다.
+  나머지 Mach-O 및 최종 앱의 엄격한 arm64·서명 검사는 유지합니다.
+- snapshot artifact와 Release는 생성하지 않았습니다. 수정 후 재검증합니다.
+
 전체 SHA 입력 경로는 Linux에서 지원 스크립트를 실제 실행해 확인했습니다.
 `46c62e51a311c89ee084ce14eb8071b6d81f765d`의 공식 main 조상 확인, 재귀 서브모듈
 체크아웃, 숫자 bundle 버전 `1.0.1`과 전체 원본 SHA의 분리 기록이 성공했습니다.
