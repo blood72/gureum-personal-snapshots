@@ -37,15 +37,36 @@ Release 빌드/서명/패키징이 성공했다는 증거가 아닙니다.
 
 ## 아직 수행하지 않은 검사
 
-- 이 저장소 workflow_dispatch 실행
-- Xcode Debug 테스트와 Release 빌드
-- 실제 빌드 앱의 entitlement/서명/아키텍처 및 source bundle 검사
+- Xcode Debug 테스트와 Release 빌드의 성공 확인
+- 실제 빌드 앱의 entitlement/서명/아키텍처 및 source bundle 검증 완료
 - unsigned pkg 설치, Homebrew cask 설치·업데이트
 - TextEdit/Terminal 등에서 입력기 동작과 권한 재승인
 - Release 업로드·게시, tap 반영
 - 로고/아이콘 및 제3자 구성 요소의 배포 조건 검토 완료
 
+## 첫 실제 Actions 실행
+
+- [실행 37093581005](https://github.com/blood72/gureum-personal-snapshots/actions/runs/37093581005)
+  (2026-10-03 한국 시간), builder `e16dfea8183e737d9030c1d05f3750219a2c2a47`.
+- 입력: `upstream_ref=main`, `build_revision=1`, `publish_release=false`,
+  `distribution_reviewed=false`.
+- 러너 준비, builder 체크아웃, 지원 코드 테스트, 공식 소스·서브모듈 체크아웃 성공.
+- `Test, build, verify and package arm64 snapshot` 단계가 exit code 1로 실패.
+  상세 로그를 확보하기 전에는 Xcode 테스트·Release 빌드가 통과했다고 간주하지 않습니다.
+- snapshot artifact 업로드는 건너뛰었으며,
+  `gureum-diagnostics-37093581005-1` 진단 artifact만 생성됐습니다.
+- 게시 job은 건너뛰었습니다. Release와 tap은 변경하지 않았습니다.
+
+클라우드에서 GitHub API 접근은 허용 항목 추가 후 정상화됐습니다. 하지만 로그
+다운로드의 `results-receiver.actions.githubusercontent.com`과 진단 artifact 저장소
+`productionresultssa9.blob.core.windows.net`이 프록시 403으로 차단되어 상세 실패 원인과
+산출물을 확인할 수 없습니다. 두 도메인을 환경 설정 초안에 추가했으며 실행 중인
+환경에 적용해야 로그 기반 수정·재실행을 계속할 수 있습니다. 새 자격 증명은 필요하지 않습니다.
+
+전체 SHA 입력 경로는 Linux에서 지원 스크립트를 실제 실행해 확인했습니다.
+`46c62e51a311c89ee084ce14eb8071b6d81f765d`의 공식 main 조상 확인, 재귀 서브모듈
+체크아웃, 숫자 bundle 버전 `1.0.1`과 전체 원본 SHA의 분리 기록이 성공했습니다.
+
 이번 설정 요청은 `publish_release=false`로 실제 Actions 실행과 산출물 검증을
-포함합니다. 현재 클라우드의 GitHub API 접근이 프록시 403으로 차단되어 있어
-실행·결과 검증은 아직 완료하지 못했습니다. 실제 성공 결과는 실행 후에만 기록합니다.
+포함하며 아직 완료하지 못했습니다. 실제 성공 결과는 확인 후에만 기록합니다.
 Release 게시, tap 수정 및 실제 Mac 설치·입력 테스트는 이번 CI 검증에 포함하지 않습니다.
