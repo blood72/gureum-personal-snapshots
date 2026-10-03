@@ -17,7 +17,11 @@
 - 기본값은 Actions 산출물 보관이며, 검토 후 직접 선택해야 GitHub prerelease 게시
 - Homebrew tap 업데이트는 수동으로 진행하며 이 워크플로는 tap에 쓰지 않음
 
-현재 이 저장소의 실제 macOS 빌드와 입력기 설치는 검증하지 않았습니다.
+2026-10-03 [실제 Actions 실행](https://github.com/blood72/gureum-personal-snapshots/actions/runs/37096433424)에서
+upstream `46c62e51a311c89ee084ce14eb8071b6d81f765d`의 Debug 테스트 45개, Release 빌드,
+arm64·ad-hoc 서명·패키징 검증과 산출물 업로드가 성공했습니다. 다운로드한 파일 10개와
+체크섬 9개도 확인했습니다. 이 산출물의 앱 선언·metadata·cask는 macOS 11.0 이상을 요구합니다.
+실제 Mac 설치와 입력기 동작은 별도로 검증해야 합니다.
 구현 일정, 빌드 주기, 지속적인 배포나 지원은 약속하지 않습니다.
 
 ## 실행 전 필요한 것

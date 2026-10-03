@@ -35,10 +35,8 @@ Resources 안의 Preferences.prefPane은 별도로 서명·entitlement를 검사
 이 검사는 워크플로·보조 코드의 검증입니다. upstream CI 성공은 이 저장소의 별도
 Release 빌드/서명/패키징이 성공했다는 증거가 아닙니다.
 
-## 아직 수행하지 않은 검사
+## 별도로 남은 검사
 
-- Xcode Debug 테스트와 Release 빌드의 성공 확인
-- 실제 빌드 앱의 entitlement/서명/아키텍처 및 source bundle 검증 완료
 - unsigned pkg 설치, Homebrew cask 설치·업데이트
 - TextEdit/Terminal 등에서 입력기 동작과 권한 재승인
 - Release 업로드·게시, tap 반영
@@ -130,6 +128,29 @@ Release 빌드/서명/패키징이 성공했다는 증거가 아닙니다.
 `46c62e51a311c89ee084ce14eb8071b6d81f765d`의 공식 main 조상 확인, 재귀 서브모듈
 체크아웃, 숫자 bundle 버전 `1.0.1`과 전체 원본 SHA의 분리 기록이 성공했습니다.
 
-이번 설정 요청은 `publish_release=false`로 실제 Actions 실행과 산출물 검증을
-포함하며 아직 완료하지 못했습니다. 실제 성공 결과는 확인 후에만 기록합니다.
+## 최종 검증 결과
+
+- [실행 37096433424](https://github.com/blood72/gureum-personal-snapshots/actions/runs/37096433424): 성공.
+  검증한 builder는 `a8403efd7a8128ac44adabcccc1100e0c797f577`,
+  실제 upstream은 `46c62e51a311c89ee084ce14eb8071b6d81f765d`입니다.
+- macOS 26.6.2 arm64 / Xcode 26.6 / macOS SDK 26.5에서 지원 코드 테스트 12개,
+  Mach-O bundle 서명 사전 검사, upstream Debug 테스트 45개(실패 0개), Release 빌드 성공.
+- 최종 Mach-O 5개가 모두 arm64이며, 앱·Preferences의 원본 entitlement와 ad-hoc
+  서명, 포함 프레임워크 서명, pkg를 펼친 앱 서명이 유효했습니다. pkg는 `Status: no signature`입니다.
+- [스냅샷 artifact](https://github.com/blood72/gureum-personal-snapshots/actions/runs/37096433424/artifacts/11265050808):
+  `gureum-snapshot-37096433424-1`. 앱 tar.gz, unsigned pkg, source tar.gz, 라이선스 고지,
+  Package.resolved, metadata, SHA256SUMS, 릴리스 노트 및 cask 예제까지 파일 10개입니다.
+  다운로드 후 체크섬 9개, 앱·소스에 내장한 metadata/lockfile과 cask 체크섬을 다시 확인했습니다.
+- 앱 선언·metadata·cask의 최소 macOS는 모두 `11.0`, 숫자 Apple 버전은 `1.0.1`입니다.
+  arm64 slice 안의 Mac Catalyst 대상 값은 최소 macOS 계산에서 제외합니다.
+  앱 tarball의 실행 권한 `0755`와 프레임워크 심볼릭 링크 6개도 보존됐습니다.
+- 앱 tar.gz SHA256: `a88d6022b289b6e499f7c86db0fee944111f7171e803df3b4e078494b6f494fa`
+- unsigned pkg SHA256: `8cc1ceb4ba1a38d8ae2bfa22be7df34dba346e40a3523877290730c9ca21c745`
+- [진단 artifact](https://github.com/blood72/gureum-personal-snapshots/actions/runs/37096433424/artifacts/11264841616)에
+  Xcode 로그, xcresult, 서명·entitlement·아키텍처 검사 및 패키지 검사 결과를 보관합니다.
+  스냅샷 artifact는 2026-10-17 13:33 KST까지(14일), 진단 artifact는 7일 보관입니다.
+- 로컬 Python/Bash 검사, ShellCheck 0.11.0, actionlint 1.7.12와 단위 테스트 12개가 통과했습니다.
+
+이번 설정 요청의 artifact 생성·다운로드 검증은 완료했습니다. Release job은 건너뛰었으며
+기존 Release/태그/산출물을 덮어쓰거나 삭제하지 않았습니다. tap도 변경하지 않았습니다.
 Release 게시, tap 수정 및 실제 Mac 설치·입력 테스트는 이번 CI 검증에 포함하지 않습니다.
