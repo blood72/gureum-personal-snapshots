@@ -9,6 +9,7 @@
 
 - 공식 `gureum/gureum`의 `main` 또는 `main`에 속한 전체 커밋 SHA를 빌드
 - Apple Silicon(arm64), Xcode 26.6, `OSX` scheme 사용
+- 빌드 옵션으로 macOS 배포 대상을 11.0으로 지정해 Intel 전용 구형 Swift 런타임 포함 방지
 - Debug 단위 테스트 후 Release 빌드, ad-hoc 서명·아키텍처·entitlement 검사
 - 앱 `.tar.gz`, unsigned `.pkg`, 소스 묶음, 라이선스 고지, SHA256, cask 예제 생성
 - 압축 파일의 내장 SHA·메타데이터·lockfile과 체크섬 확인, pkg를 펼쳐 앱 서명 재검증

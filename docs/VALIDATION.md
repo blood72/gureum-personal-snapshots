@@ -52,16 +52,17 @@ Release 빌드/서명/패키징이 성공했다는 증거가 아닙니다.
   `distribution_reviewed=false`.
 - 러너 준비, builder 체크아웃, 지원 코드 테스트, 공식 소스·서브모듈 체크아웃 성공.
 - `Test, build, verify and package arm64 snapshot` 단계가 exit code 1로 실패.
-  상세 로그를 확보하기 전에는 Xcode 테스트·Release 빌드가 통과했다고 간주하지 않습니다.
+  이후 확보한 로그에서 upstream Debug 테스트 45개(실패 0개)와 Release 빌드 성공을 확인했습니다.
+  실패는 빌드 뒤의 arm64 검사에서 발생했습니다. upstream의 macOS 10.13 배포 대상에 따라
+  Xcode가 Intel 전용 구형 Swift 런타임을 포함했고 `libswiftCore.dylib: x86_64`가 검출됐습니다.
+  소스 수정 없이 공통 Xcode 옵션에 `MACOSX_DEPLOYMENT_TARGET=11.0`을 추가해 재검증합니다.
 - snapshot artifact 업로드는 건너뛰었으며,
   `gureum-diagnostics-37093581005-1` 진단 artifact만 생성됐습니다.
 - 게시 job은 건너뛰었습니다. Release와 tap은 변경하지 않았습니다.
 
-클라우드에서 GitHub API 접근은 허용 항목 추가 후 정상화됐습니다. 하지만 로그
-다운로드의 `results-receiver.actions.githubusercontent.com`과 진단 artifact 저장소
-`productionresultssa9.blob.core.windows.net`이 프록시 403으로 차단되어 상세 실패 원인과
-산출물을 확인할 수 없습니다. 두 도메인을 환경 설정 초안에 추가했으며 실행 중인
-환경에 적용해야 로그 기반 수정·재실행을 계속할 수 있습니다. 새 자격 증명은 필요하지 않습니다.
+클라우드의 GitHub API, 로그 다운로드 및 진단 artifact 접근은 도메인 허용 변경 후
+정상화됐습니다. 첫 실행 로그와 진단 파일을 다운로드해 위 실패 원인을 확인했습니다.
+새 자격 증명은 추가하지 않았습니다.
 
 전체 SHA 입력 경로는 Linux에서 지원 스크립트를 실제 실행해 확인했습니다.
 `46c62e51a311c89ee084ce14eb8071b6d81f765d`의 공식 main 조상 확인, 재귀 서브모듈

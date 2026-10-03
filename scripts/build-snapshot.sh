@@ -17,6 +17,8 @@ common=(
   -project "$root/source/Gureum.xcodeproj" -scheme OSX -sdk macosx
   -derivedDataPath "$root/build/DerivedData"
   ARCHS=arm64 ONLY_ACTIVE_ARCH=YES
+  # Upstream's 10.13 target embeds pre-Apple-Silicon, Intel-only Swift runtimes.
+  MACOSX_DEPLOYMENT_TARGET=11.0
   CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM=
   ENABLE_HARDENED_RUNTIME=NO
   "VERSION=$version" "CURRENT_PROJECT_VERSION=$version" "MARKETING_VERSION=$version"
@@ -74,10 +76,14 @@ cmp "$app/Contents/Resources/PersonalSnapshot/metadata.json" \
   "$packaged_app/Contents/Resources/PersonalSnapshot/metadata.json"
 codesign --verify --deep --strict --verbose=2 "$packaged_app" 2>&1 \
   | tee diagnostics/pkg-app-verify.txt
-if pkgutil --check-signature "dist/$stem.unsigned.pkg" > diagnostics/pkg-signature.txt 2>&1; then
-  printf 'Unexpected signed installer\n' >&2
+pkg_signature_status=0
+pkgutil --check-signature "dist/$stem.unsigned.pkg" > diagnostics/pkg-signature.txt 2>&1 \
+  || pkg_signature_status=$?
+# The reported status establishes signing; a successful inspection alone does not.
+if ! grep -F 'Status: no signature' diagnostics/pkg-signature.txt; then
+  cat diagnostics/pkg-signature.txt >&2
+  printf 'Expected an unsigned installer (pkgutil exit %s)\n' "$pkg_signature_status" >&2
   exit 1
 fi
-grep -F 'Status: no signature' diagnostics/pkg-signature.txt
 ruby -c dist/gureum-snapshot.rb
 cat dist/RELEASE_NOTES.md >> "$GITHUB_STEP_SUMMARY"
