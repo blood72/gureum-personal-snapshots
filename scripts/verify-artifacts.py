@@ -32,6 +32,7 @@ def verify(directory, builder_sha):
             "CFBundleShortVersionString": data["bundle_version"],
             "PersonalSnapshotVersion": data["version"],
             "PersonalSnapshotUpstreamSHA": data["upstream_sha"],
+            "LSMinimumSystemVersion": data["minimum_macos"],
         }
         if any(info.get(key) != value for key, value in expected.items()):
             raise ValueError("Packaged app version/provenance mismatch")

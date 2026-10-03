@@ -100,8 +100,6 @@ def provenance(app):
         info = plistlib.load(file)
     info["PersonalSnapshotVersion"] = data["version"]
     info["PersonalSnapshotUpstreamSHA"] = data["upstream_sha"]
-    with (app / "Contents/Info.plist").open("wb") as file:
-        plistlib.dump(info, file)
     resources = app / "Contents/Resources/PersonalSnapshot"
     resources.mkdir(parents=True, exist_ok=True)
     licenses = resources / "licenses"
@@ -125,6 +123,9 @@ def provenance(app):
         raise RuntimeError("Missing upstream COPYING")
     data["components"] = records
     data["minimum_macos"] = inspect_binaries(app, info["LSMinimumSystemVersion"])
+    info["LSMinimumSystemVersion"] = data["minimum_macos"]
+    with (app / "Contents/Info.plist").open("wb") as file:
+        plistlib.dump(info, file)
     data["toolchain"] = Path("diagnostics/toolchain.txt").read_text()
     locks = sorted(SOURCE.glob("Gureum.xcodeproj/**/Package.resolved"))
     if not locks:
@@ -159,6 +160,8 @@ def verify_app(app):
         raise RuntimeError("Built app numeric version differs from requested build revision")
     if info.get("PersonalSnapshotVersion") != data["version"] or info.get("PersonalSnapshotUpstreamSHA") != data["upstream_sha"]:
         raise RuntimeError("Built app lost snapshot commit metadata")
+    if info.get("LSMinimumSystemVersion") != data["minimum_macos"]:
+        raise RuntimeError("Built app minimum macOS differs from its dependencies")
     with Path("diagnostics/entitlements.plist").open("rb") as file:
         actual = plistlib.load(file)
     with (SOURCE / "OSX/Gureum.entitlements").open("rb") as file:
@@ -177,6 +180,27 @@ def verify_app(app):
         raise RuntimeError("Expected Preferences.prefPane ad-hoc signing without hardened runtime")
 
 
+def macos_minimums(load_commands):
+    """Read macOS load commands only; zippered binaries also contain Catalyst targets."""
+    versions = []
+    for block in re.split(r"(?m)^Load command \d+\s*$", load_commands):
+        if re.search(r"\bcmd LC_BUILD_VERSION\b", block):
+            platform = re.search(r"\bplatform (\w+)", block)
+            if platform is None:
+                raise RuntimeError("LC_BUILD_VERSION has no platform")
+            if platform[1].lower() in ("1", "macos", "platform_macos"):
+                minimum = re.search(r"\bminos ([0-9]+(?:\.[0-9]+){0,2})", block)
+                if minimum is None:
+                    raise RuntimeError("macOS LC_BUILD_VERSION has no minimum version")
+                versions.append(minimum[1])
+        elif re.search(r"\bcmd LC_VERSION_MIN_MACOSX\b", block):
+            minimum = re.search(r"\bversion ([0-9]+(?:\.[0-9]+){0,2})", block)
+            if minimum is None:
+                raise RuntimeError("LC_VERSION_MIN_MACOSX has no minimum version")
+            versions.append(minimum[1])
+    return versions
+
+
 def inspect_binaries(app, declared_minimum):
     architectures = []
     minimums = ["11", declared_minimum]
@@ -188,10 +212,10 @@ def inspect_binaries(app, declared_minimum):
             architectures.append(f"{path.relative_to(app)}: {arch}")
             # Dependencies can require a newer OS than the top-level Info.plist.
             load_commands = run("otool", "-l", str(path))
-            minimums.extend(re.findall(r"\bminos ([0-9]+(?:\.[0-9]+){0,2})", load_commands))
-            minimums.extend(re.findall(
-                r"cmd LC_VERSION_MIN_MACOSX\s+cmdsize \d+\s+version ([0-9]+(?:\.[0-9]+){0,2})",
-                load_commands))
+            targets = macos_minimums(load_commands)
+            if not targets:
+                raise RuntimeError(f"No macOS deployment target in Mach-O: {path}")
+            minimums.extend(targets)
     if not architectures:
         raise RuntimeError("No Mach-O executables found")
     Path("diagnostics/architectures.txt").write_text("\n".join(architectures) + "\n")

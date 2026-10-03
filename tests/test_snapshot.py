@@ -65,6 +65,40 @@ class Inputs(unittest.TestCase):
 
 
 class Packaging(unittest.TestCase):
+    def test_macos_minimum_excludes_catalyst_and_ios(self):
+        load_commands = '''Load command 0
+      cmd LC_BUILD_VERSION
+  cmdsize 32
+ platform 1
+    minos 11.0
+      sdk 13.0
+Load command 1
+      cmd LC_BUILD_VERSION
+  cmdsize 32
+ platform 6
+    minos 14.0
+      sdk 16.0
+Load command 2
+      cmd LC_BUILD_VERSION
+ platform IOS
+    minos 17.0
+'''
+        self.assertEqual(snapshot.macos_minimums(load_commands), ["11.0"])
+
+    def test_legacy_and_symbolic_macos_minimum(self):
+        self.assertEqual(snapshot.macos_minimums('''Load command 0
+      cmd LC_VERSION_MIN_MACOSX
+  cmdsize 16
+  version 10.13
+      sdk 11.0
+Load command 1
+      cmd LC_BUILD_VERSION
+ platform MACOS
+    minos 12.0
+'''), ["10.13", "12.0"])
+        with self.assertRaisesRegex(RuntimeError, "no minimum"):
+            snapshot.macos_minimums("Load command 0\n cmd LC_BUILD_VERSION\n platform 1\n")
+
     def test_packaged_metadata_must_match_even_with_valid_checksums(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
@@ -86,7 +120,8 @@ class Packaging(unittest.TestCase):
             info = {"CFBundleVersion": data["bundle_version"],
                     "CFBundleShortVersionString": data["bundle_version"],
                     "PersonalSnapshotVersion": data["version"],
-                    "PersonalSnapshotUpstreamSHA": data["upstream_sha"]}
+                    "PersonalSnapshotUpstreamSHA": data["upstream_sha"],
+                    "LSMinimumSystemVersion": data["minimum_macos"]}
             resources = "Gureum.app/Contents/Resources/PersonalSnapshot"
             app_members = {"Gureum.app/Contents/Info.plist": plistlib.dumps(info),
                            f"{resources}/metadata.json": json.dumps(data).encode(),
@@ -102,13 +137,14 @@ class Packaging(unittest.TestCase):
                 snapshot.finalize()
             self.assertEqual(artifacts.verify(directory, "b" * 40)["checksums_verified"], 9)
             # A freshly recalculated checksum must not mask conflicting embedded SHA.
-            info["PersonalSnapshotUpstreamSHA"] = "c" * 40
-            app_members["Gureum.app/Contents/Info.plist"] = plistlib.dumps(info)
-            write_archive(f'{data["stem"]}.app.tar.gz', app_members)
-            with patch.object(snapshot, "DIST", directory):
-                snapshot.finalize()
-            with self.assertRaisesRegex(ValueError, "provenance mismatch"):
-                artifacts.verify(directory, "b" * 40)
+            for key, value in (("PersonalSnapshotUpstreamSHA", "c" * 40),
+                               ("LSMinimumSystemVersion", "10.13")):
+                app_members["Gureum.app/Contents/Info.plist"] = plistlib.dumps(info | {key: value})
+                write_archive(f'{data["stem"]}.app.tar.gz', app_members)
+                with patch.object(snapshot, "DIST", directory):
+                    snapshot.finalize()
+                with self.subTest(key=key), self.assertRaisesRegex(ValueError, "provenance mismatch"):
+                    artifacts.verify(directory, "b" * 40)
 
     def test_tracked_archive_excludes_git_and_untracked_files(self):
         with tempfile.TemporaryDirectory() as temporary:

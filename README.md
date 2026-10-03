@@ -35,7 +35,8 @@
 
 로컬 Mac의 Xcode나 Homebrew 사전 설치는 GitHub Actions 실행에 필요하지 않습니다.
 실제 설치 대상은 Apple Silicon Mac입니다. cask의 최소 macOS 버전은 앱과 포함된 Mach-O의
-배포 대상 중 가장 높은 값(최소 macOS 11)으로 생성하지만, 실행 중 API 호환성까지 보장하지는 않습니다.
+macOS 배포 대상 중 가장 높은 값(최소 macOS 11)으로 앱 선언·metadata·cask를 맞춥니다.
+Mac Catalyst/iOS 대상 값은 제외하며, 실행 중 API 호환성까지 보장하지는 않습니다.
 
 ## 수동 실행
 

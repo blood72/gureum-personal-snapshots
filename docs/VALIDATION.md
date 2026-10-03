@@ -24,7 +24,7 @@ actionlint 1.7.12, ShellCheck 0.11.0으로 검증했습니다.
 체크섬 검증, GitHub 조회 오류 시 안전하게 중단하는 동작을 다룹니다.
 인계 ZIP SHA256과 내부 manifest를 확인한 뒤 실제 upstream main, 재귀 서브모듈,
 공식 macOS 26 arm64 러너의 Xcode 26.6 경로와 Actions 고정 SHA를 다시 확인했습니다.
-현재 로컬 단위 테스트는 10개이며 모두 통과했습니다. 추가한 테스트는 체크섬을 다시
+현재 로컬 단위 테스트는 12개이며 모두 통과했습니다. 추가한 테스트는 체크섬을 다시
 계산해도 앱 안의 원본 SHA가 metadata와 다르면 산출물 검증이 실패하는지 확인합니다.
 CI에서 앱·소스 압축 파일의 메타데이터/lockfile, 고지 파일, cask와 전체 체크섬을
 검증하고 unsigned pkg를 펼쳐 앱 서명과 내장 메타데이터를 재검증하도록 보강했습니다.
@@ -106,6 +106,25 @@ Release 빌드/서명/패키징이 성공했다는 증거가 아닙니다.
   전에 작은 arm64 Mach-O bundle을 실제로 서명하고 원본 entitlement와 비교하는 검증도
   추가해 이 전제조건을 먼저 확인합니다. 실제 Preferences의 서명·entitlement 검사는 유지합니다.
 - 진단 artifact 저장소 접근은 이후 정상화돼 앞선 실행들의 파일을 직접 확인했습니다.
+
+## 다섯 번째 실제 Actions 실행과 산출물 확인
+
+- [실행 37095756497](https://github.com/blood72/gureum-personal-snapshots/actions/runs/37095756497),
+  builder `9d3fa75f8ea02c98fd5575c79cd9c2454d393103`: 성공.
+- Mach-O library 서명 사전 검사, upstream Debug 테스트 45개(실패 0개), Release 빌드,
+  5개 Mach-O의 arm64 검사, 앱·Preferences의 원본 entitlement/서명 검사가 통과했습니다.
+  unsigned pkg를 펼친 앱의 서명 검증, cask Ruby 구문 검사, artifact 업로드도 성공했습니다.
+- artifact를 내려받아 파일 10개, 체크섬 9개, 앱·소스 내장 metadata/lockfile,
+  cask와 app tarball SHA256의 일치를 확인했습니다. 앱 archive의 실행 권한과
+  프레임워크 심볼릭 링크도 보존됐습니다.
+- 확인 중 최소 OS 계산 오류를 발견했습니다. Swift concurrency 런타임의 macOS
+  `LC_BUILD_VERSION`(platform 1, minos 11.0)과 Mac Catalyst 대상(platform 6, minos 14.0)을
+  함께 읽어 metadata/cask가 macOS 14.0을 요구했습니다. 실제 macOS 대상은 11.0입니다.
+  [Apple Mach-O loader.h](https://github.com/apple-oss-distributions/xnu/blob/main/EXTERNAL_HEADERS/mach-o/loader.h)의
+  플랫폼 상수를 확인했으며, macOS 대상과 legacy `LC_VERSION_MIN_MACOSX`만 읽도록 수정합니다.
+- 플랫폼 구분과 malformed load command에 대한 단위 테스트를 추가했습니다.
+  앱 Info.plist의 `LSMinimumSystemVersion`도 계산된 macOS 요구 버전과 맞추고,
+  metadata·압축 앱·cask가 이를 일관되게 사용하도록 검증합니다. 이 수정으로 재실행합니다.
 
 전체 SHA 입력 경로는 Linux에서 지원 스크립트를 실제 실행해 확인했습니다.
 `46c62e51a311c89ee084ce14eb8071b6d81f765d`의 공식 main 조상 확인, 재귀 서브모듈
