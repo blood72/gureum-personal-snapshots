@@ -2,18 +2,114 @@
 
 [구름 입력기](https://github.com/gureum/gureum)의 특정 커밋을 직접 빌드하고 사용하기 위한 개인용 비공식 스냅샷 저장소입니다. 공식 릴리스 사이의 변경 사항을 개인 환경에서 확인하고, 설치와 업데이트를 편하게 관리하려고 만들었습니다.
 
-## 현재 상태와 계획
+## 현재 상태
 
-현재는 저장소의 취지를 적은 README만 있습니다. 빌드 워크플로, 구름 소스 코드, 바이너리, 로고·아이콘 등은 아직 포함하지 않습니다.
+수동 실행 전용 GitHub Actions 워크플로와 빌드·패키징 스크립트가 있습니다.
+구름 소스 코드나 바이너리를 이 저장소에 직접 커밋하지 않습니다.
 
-앞으로 다음 흐름을 구성할 계획입니다.
+- 공식 `gureum/gureum`의 `main` 또는 `main`에 속한 전체 커밋 SHA를 빌드
+- Apple Silicon(arm64), Xcode 26.6, `OSX` scheme 사용
+- Debug 단위 테스트 후 Release 빌드, ad-hoc 서명·아키텍처·entitlement 검사
+- 앱 `.tar.gz`, unsigned `.pkg`, 소스 묶음, 라이선스 고지, SHA256, cask 예제 생성
+- 압축 파일의 내장 SHA·메타데이터·lockfile과 체크섬 확인, pkg를 펼쳐 앱 서명 재검증
+- 기본값은 Actions 산출물 보관이며, 검토 후 직접 선택해야 GitHub prerelease 게시
+- Homebrew tap 업데이트는 수동으로 진행하며 이 워크플로는 tap에 쓰지 않음
 
-- 공식 저장소의 커밋 SHA를 지정해 GitHub Actions에서 빌드
-- 빌드에 사용한 소스와 커밋을 확인할 수 있도록 기록
-- 배포에 필요한 라이선스 조건을 확인하고 충족한 뒤 개인용 스냅샷 릴리스 제공
-- [개인 Homebrew tap](https://github.com/blood72/homebrew-taps)에서 해당 스냅샷을 설치·업데이트할 수 있도록 연결
-
+현재 이 저장소의 실제 macOS 빌드와 입력기 설치는 검증하지 않았습니다.
 구현 일정, 빌드 주기, 지속적인 배포나 지원은 약속하지 않습니다.
+
+## 실행 전 필요한 것
+
+1. 이 저장소에서 GitHub Actions와 `actions/checkout`, `actions/upload-artifact`,
+   `actions/download-artifact` 실행이 허용되어 있어야 합니다. Actions는 커밋 SHA로 고정했습니다.
+2. GitHub-hosted `macos-26` arm64 러너와 `/Applications/Xcode_26.6.app`을 사용합니다.
+   러너 이미지에서 해당 Xcode가 사라지면 워크플로의 경로를 검토해 변경해야 합니다.
+3. 빌드에는 별도 PAT, Apple 개발자 인증서, 공증 시크릿이 필요하지 않습니다.
+   기본 `GITHUB_TOKEN`은 읽기 전용이며, 명시적으로 선택한 게시 job만 이 저장소의
+   `contents: write` 권한을 요청합니다. 저장소·조직 정책이 이를 허용해야 게시할 수 있습니다.
+4. 처음 실행하기 전에도 [배포 전 확인 사항](docs/DISTRIBUTION.md)을 읽어야 합니다.
+   공개 저장소의 Actions 산출물은 비공개 저장소가 아닙니다. `publish_release=false`만으로
+   바이너리나 소스가 외부에 공개되지 않는다고 가정하면 안 됩니다.
+
+로컬 Mac의 Xcode나 Homebrew 사전 설치는 GitHub Actions 실행에 필요하지 않습니다.
+실제 설치 대상은 Apple Silicon Mac입니다. cask의 최소 macOS 버전은 앱과 포함된 Mach-O의
+배포 대상 중 가장 높은 값(최소 macOS 11)으로 생성하지만, 실행 중 API 호환성까지 보장하지는 않습니다.
+
+## 수동 실행
+
+Actions → **Build Gureum personal snapshot** → **Run workflow**에서 실행합니다.
+
+- `upstream_ref`: `main` 또는 40자리 전체 SHA. 태그, 임의 브랜치, fork 커밋은 받지 않습니다.
+  SHA가 실행 시점 공식 `main`의 조상이 아니면 중단합니다.
+- `build_revision`: 기본 `1`. 동일 SHA를 다시 배포해야 하면 `2`, `3` 등으로 올립니다.
+- `publish_release`: 기본 `false`. 테스트·빌드 후 Actions 산출물만 받으려면 그대로 둡니다.
+- `distribution_reviewed`: 기본 `false`. 소스·제3자 구성 요소·로고·아이콘과 적용되는
+  재배포 의무를 검토한 뒤 게시할 때만 선택합니다. 이 체크가 검토 자체를 수행하지는 않습니다.
+
+Release 게시에는 마지막 두 옵션 모두 `true`가 필요하며 이 저장소의 `main`에서만 허용합니다.
+`push`, PR, cron으로 실행하거나 자동 배포하지 않습니다.
+
+성공한 실행의 `gureum-snapshot-<run id>-<attempt>`에서 산출물을 받을 수 있습니다.
+보관 기간은 14일이고 진단 로그·테스트 결과는 7일입니다. 빌드 실패 시에도 가능한 진단 자료를 남깁니다.
+
+## 산출물과 버전
+
+버전은 전체 upstream SHA이며, revision 2부터 `<SHA>-r2` 형태입니다.
+Apple의 숫자 형식에 맞추기 위해 앱의 CFBundleVersion/CFBundleShortVersionString은
+`1.<revision을 100으로 나눈 몫>.<나머지>`(기본 `1.0.1`)로 별도 기록합니다.
+이는 upstream의 공식 버전이나 커밋의 시간순 정렬을 뜻하지 않습니다.
+전체 SHA 버전은 앱 Info.plist의 `PersonalSnapshotVersion`/`PersonalSnapshotUpstreamSHA`와
+내장 metadata에 보존합니다.
+Release 태그는 `snapshot-<version>`이며 태그 대상은 **이 빌드 도구 저장소의 커밋**입니다.
+upstream 커밋은 별도로 metadata와 릴리스 노트에 기록합니다.
+
+- `Gureum-snapshot-<version>-arm64.app.tar.gz`: ad-hoc 서명된 `Gureum.app`
+- `Gureum-snapshot-<version>-arm64.unsigned.pkg`: 같은 앱을 `/Library/Input Methods`에 설치
+- `Gureum-snapshot-<version>-arm64.source.tar.gz`: 정확한 소스/서브모듈/SPM checkout 및 빌드 정보
+- `metadata.json`, `Package.resolved`, `licenses.tar.gz`, `DISTRIBUTION.md`
+- `SHA256SUMS`, `RELEASE_NOTES.md`, `gureum-snapshot.rb`
+
+Release는 draft 상태로 파일을 올려 이름·크기·가능한 서버 체크섬을 확인한 후 prerelease로
+게시하며 latest로 지정하지 않습니다. 기존 태그·draft·Release는 수정하거나 덮어쓰지 않습니다.
+업로드 중 실패하면 draft가 남을 수 있습니다. 해당 상태를 직접 확인하고 같은 소스를 새로 빌드하려면
+revision을 올리세요. 기존 Release를 유지할 때는 그 Release에 첨부된 cask와 체크섬을 사용해야 합니다.
+
+SPM lockfile이 upstream에 커밋되어 있지 않아 **같은 upstream SHA라도 나중에 resolve되는
+의존성이 달라질 수 있습니다.** 생성된 lockfile과 실제 checkout 커밋을 보존하지만 비트 단위
+재현 빌드를 보장하지 않습니다. 다른 결과물을 배포하려면 revision을 올립니다.
+
+## Homebrew tap에 연결
+
+해당 Release가 게시되고 배포 조건을 검토한 뒤 첨부된 `gureum-snapshot.rb`를 원하는 tap의
+`Casks/gureum-snapshot.rb`에 수동으로 반영합니다. cask에는 해당 릴리스의 정확한 tarball URL과
+SHA256이 들어갑니다. Actions 산출물만 만든 경우 이 Release URL은 아직 존재하지 않습니다.
+다른 cask가 함께 있는 일반 개인 tap에서도 사용할 수 있는 독립된 cask 예제입니다.
+
+공식 `gureumkim` cask와 충돌하도록 표시하며, 같은 앱 이름·번들 ID·설치 경로를 사용합니다.
+설치·업데이트 전 기본 입력기로 전환하고, 이후 로그아웃/로그인하세요.
+서명·보안·실제 입력기 확인에 관한 내용은 [배포 전 확인 사항](docs/DISTRIBUTION.md)을 참고하세요.
+
+## 개발과 검증
+
+```sh
+python3 -m unittest discover -s tests -v
+python3 -m py_compile scripts/*.py tests/*.py
+for script in scripts/*.sh; do bash -n "$script" || exit; done
+shellcheck scripts/*.sh
+actionlint .github/workflows/gureum-snapshot-release.yml
+```
+
+Actions 산출물을 다운로드한 뒤 저장소 루트에서 다음 명령으로 파일 구성, 체크섬,
+앱·소스의 내장 메타데이터와 cask를 확인할 수 있습니다. `<builder SHA>`는 해당 실행의
+빌드 도구 커밋 전체 SHA입니다. 이 검사는 Linux에서도 가능하며 Mac 설치 테스트는 아닙니다.
+
+```sh
+python3 scripts/verify-artifacts.py /path/to/downloaded/artifact '<builder SHA>'
+```
+
+위 정적 검사와 단위 테스트는 macOS 빌드가 아닙니다. 실제 Xcode 테스트, Release 빌드,
+서명·패키지·설치 확인은 별도로 실행해야 합니다. 상세 검증 기준과 근거는
+[개발 메모](docs/VALIDATION.md)에 있습니다.
 
 ## 사용 안내
 

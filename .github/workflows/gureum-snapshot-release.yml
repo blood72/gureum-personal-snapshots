@@ -1,0 +1,112 @@
+name: Build Gureum personal snapshot
+run-name: Gureum snapshot (${{ inputs.upstream_ref }}, revision ${{ inputs.build_revision }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      upstream_ref:
+        description: 'Official gureum/gureum main or a full 40-character commit SHA on main'
+        required: true
+        default: main
+        type: string
+      build_revision:
+        description: 'Positive integer; increase to rebuild the same commit without replacing assets'
+        required: true
+        default: '1'
+        type: string
+      publish_release:
+        description: 'Publish a public prerelease (off = Actions artifacts only)'
+        required: true
+        default: false
+        type: boolean
+      distribution_reviewed:
+        description: 'I have reviewed source, dependency, logo/icon rights and redistribution obligations'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+# Serializes publishers too; existing tags/assets are never overwritten.
+concurrency:
+  group: gureum-personal-snapshot
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 90
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - name: Check out builder
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Validate request and builder helpers
+        env:
+          UPSTREAM_REF: ${{ inputs.upstream_ref }}
+          BUILD_REVISION: ${{ inputs.build_revision }}
+          PUBLISH_RELEASE: ${{ inputs.publish_release }}
+          DISTRIBUTION_REVIEWED: ${{ inputs.distribution_reviewed }}
+        run: |
+          python3 -m unittest discover -s tests -v
+          python3 scripts/snapshot.py validate-inputs
+      - name: Fetch official source and pinned submodules
+        env:
+          UPSTREAM_REF: ${{ inputs.upstream_ref }}
+          BUILD_REVISION: ${{ inputs.build_revision }}
+        run: bash scripts/checkout-upstream.sh
+      - name: Test, build, verify and package arm64 snapshot
+        run: bash scripts/build-snapshot.sh
+      - name: Upload snapshot artifacts
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: gureum-snapshot-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+      - name: Upload diagnostics even on failure
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: gureum-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: diagnostics/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  publish:
+    needs: build
+    if: >-
+      ${{ inputs.publish_release && inputs.distribution_reviewed &&
+          github.repository == 'blood72/gureum-personal-snapshots' &&
+          github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      # Never execute scripts obtained from a build artifact/upstream checkout here.
+      - name: Check out trusted builder
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Download this run's exact artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
+          path: dist/
+      - name: Publish a new prerelease without overwriting
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/publish-release.py
