@@ -1,6 +1,8 @@
 import importlib.util
+import io
 import json
 import os
+import plistlib
 from pathlib import Path
 import subprocess
 import sys
@@ -16,6 +18,10 @@ import snapshot
 spec = importlib.util.spec_from_file_location("publish_release", ROOT / "scripts/publish-release.py")
 publish = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(publish)
+
+spec = importlib.util.spec_from_file_location("verify_artifacts", ROOT / "scripts/verify-artifacts.py")
+artifacts = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(artifacts)
 
 
 class Inputs(unittest.TestCase):
@@ -59,6 +65,51 @@ class Inputs(unittest.TestCase):
 
 
 class Packaging(unittest.TestCase):
+    def test_packaged_metadata_must_match_even_with_valid_checksums(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            data = snapshot.identity("a" * 40, "1") | {
+                "builder_repository": snapshot.REPOSITORY, "builder_sha": "b" * 40,
+                "run_url": "https://github.com/test/run", "run_attempt": "1", "minimum_macos": "11"}
+            (directory / "metadata.json").write_text(json.dumps(data))
+            (directory / "Package.resolved").write_bytes(b"lockfile fixture")
+            (directory / "DISTRIBUTION.md").write_text("fixture")
+            (directory / f'{data["stem"]}.unsigned.pkg').write_bytes(b"xar!fixture")
+
+            def write_archive(name, members):
+                with tarfile.open(directory / name, "w:gz") as archive:
+                    for path, contents in members.items():
+                        member = tarfile.TarInfo(path)
+                        member.size = len(contents)
+                        archive.addfile(member, io.BytesIO(contents))
+
+            info = {"CFBundleVersion": data["bundle_version"],
+                    "CFBundleShortVersionString": data["bundle_version"],
+                    "PersonalSnapshotVersion": data["version"],
+                    "PersonalSnapshotUpstreamSHA": data["upstream_sha"]}
+            resources = "Gureum.app/Contents/Resources/PersonalSnapshot"
+            app_members = {"Gureum.app/Contents/Info.plist": plistlib.dumps(info),
+                           f"{resources}/metadata.json": json.dumps(data).encode(),
+                           f"{resources}/Package.resolved": b"lockfile fixture"}
+            write_archive(f'{data["stem"]}.app.tar.gz', app_members)
+            write_archive(f'{data["stem"]}.source.tar.gz', {
+                "build-info/metadata.json": json.dumps(data).encode(),
+                "build-info/Package.resolved": b"lockfile fixture",
+                "build-info/upstream-build-changes.diff": b"",
+                "gureum/COPYING": b"notice fixture"})
+            write_archive("licenses.tar.gz", {"licenses/gureum/COPYING": b"notice fixture"})
+            with patch.object(snapshot, "DIST", directory):
+                snapshot.finalize()
+            self.assertEqual(artifacts.verify(directory, "b" * 40)["checksums_verified"], 9)
+            # A freshly recalculated checksum must not mask conflicting embedded SHA.
+            info["PersonalSnapshotUpstreamSHA"] = "c" * 40
+            app_members["Gureum.app/Contents/Info.plist"] = plistlib.dumps(info)
+            write_archive(f'{data["stem"]}.app.tar.gz', app_members)
+            with patch.object(snapshot, "DIST", directory):
+                snapshot.finalize()
+            with self.assertRaisesRegex(ValueError, "provenance mismatch"):
+                artifacts.verify(directory, "b" * 40)
+
     def test_tracked_archive_excludes_git_and_untracked_files(self):
         with tempfile.TemporaryDirectory() as temporary:
             repo = Path(temporary) / "repo"

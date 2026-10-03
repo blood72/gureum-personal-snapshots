@@ -63,5 +63,21 @@ stem=$(python3 -c 'import json; print(json.load(open("dist/metadata.json"))["ste
 COPYFILE_DISABLE=1 tar -czf "dist/$stem.app.tar.gz" -C "$(dirname "$app")" Gureum.app
 productbuild --component "$app" '/Library/Input Methods' "dist/$stem.unsigned.pkg"
 python3 scripts/snapshot.py finalize
+python3 scripts/verify-artifacts.py dist "$GITHUB_SHA" | tee diagnostics/artifact-inspection.json
+# Expand the installer to ensure productbuild preserved the signed app payload.
+pkg_inspection="$root/build/pkg-inspection"
+pkgutil --expand-full "dist/$stem.unsigned.pkg" "$pkg_inspection"
+packaged_app=$(find "$pkg_inspection" -type d -name Gureum.app)
+[[ -n "$packaged_app" && -d "$packaged_app" ]]
+cmp "$app/Contents/Info.plist" "$packaged_app/Contents/Info.plist"
+cmp "$app/Contents/Resources/PersonalSnapshot/metadata.json" \
+  "$packaged_app/Contents/Resources/PersonalSnapshot/metadata.json"
+codesign --verify --deep --strict --verbose=2 "$packaged_app" 2>&1 \
+  | tee diagnostics/pkg-app-verify.txt
+if pkgutil --check-signature "dist/$stem.unsigned.pkg" > diagnostics/pkg-signature.txt 2>&1; then
+  printf 'Unexpected signed installer\n' >&2
+  exit 1
+fi
+grep -F 'Status: no signature' diagnostics/pkg-signature.txt
 ruby -c dist/gureum-snapshot.rb
 cat dist/RELEASE_NOTES.md >> "$GITHUB_STEP_SUMMARY"
