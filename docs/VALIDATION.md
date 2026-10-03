@@ -24,7 +24,7 @@ actionlint 1.7.12, ShellCheck 0.11.0으로 검증했습니다.
 체크섬 검증, GitHub 조회 오류 시 안전하게 중단하는 동작을 다룹니다.
 인계 ZIP SHA256과 내부 manifest를 확인한 뒤 실제 upstream main, 재귀 서브모듈,
 공식 macOS 26 arm64 러너의 Xcode 26.6 경로와 Actions 고정 SHA를 다시 확인했습니다.
-현재 로컬 단위 테스트는 12개이며 모두 통과했습니다. 추가한 테스트는 체크섬을 다시
+초기 설정 완료 시 로컬 단위 테스트는 12개이며 모두 통과했습니다. 추가한 테스트는 체크섬을 다시
 계산해도 앱 안의 원본 SHA가 metadata와 다르면 산출물 검증이 실패하는지 확인합니다.
 CI에서 앱·소스 압축 파일의 메타데이터/lockfile, 고지 파일, cask와 전체 체크섬을
 검증하고 unsigned pkg를 펼쳐 앱 서명과 내장 메타데이터를 재검증하도록 보강했습니다.
@@ -167,12 +167,15 @@ Release 게시, tap 수정 및 실제 Mac 설치·입력 테스트는 이번 CI 
 버전 필드는 각각 관리합니다.
 
 - [CFBundleShortVersionString](https://developer.apple.com/documentation/bundleresources/information-property-list/cfbundleshortversionstring):
-  세 개의 점으로 구분한 숫자 버전이므로 `1.13.2`로 유지합니다.
+  점으로 구분한 세 개의 숫자 버전이므로 `1.13.2`로 유지합니다.
 - [CFBundleVersion](https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html):
   숫자 빌드 버전입니다. Apple이 문서화한 개발 접미사는 `d`, `a`, `b`, `fc`이며
   임의의 `-snapshot`은 해당하지 않습니다. 기존 revision 규칙의 `1.0.1`을 유지합니다.
 - pkgbuild/productbuild: component/product 버전은 숫자 빌드 버전 `1.0.1`입니다.
-  Apple installer의 숫자 비교 규칙에 맞추며 임의 접미사를 사용하지 않습니다.
+  pkgbuild/productbuild의 `--version`은 버전 문자열을 받으며 CFBundleShortVersionString과
+  같은 세 숫자 필드 제약으로 단정하지 않습니다. 문서는 `-snapshot` 접미사의 비교 순서를
+  보장하지 않으므로 이번 빌드에서는 숫자 버전을 사용합니다. suffix를 가진 pkg의 실제
+  설치·업그레이드/다운그레이드 동작은 검증하지 않았습니다.
   PackageInfo/Distribution의 실제 XML과 포함 앱의 두 버전 필드를 검사합니다.
 - 사용자 표시는 `PersonalSnapshotVersion`·`CFBundleGetInfoString`과 앱 정보 창의
   `applicationVersion` 옵션으로 분리합니다. 숫자 필드 전체 문자열 치환은 하지 않습니다.
@@ -207,3 +210,40 @@ GureumMenu의 수동 확인은 공식 feed와의 문자열 불일치를 기준�
   product-version, package, product requirements 옵션을 확인했습니다. 실제 러너의
   pkgbuild/productbuild man page도 진단 artifact에 보존합니다.
 - 실패한 실행은 스냅샷 artifact 업로드와 Release 게시를 건너뛰었습니다.
+
+### 표시 버전 최종 검증 결과
+
+- [성공 실행 37100051527](https://github.com/blood72/gureum-personal-snapshots/actions/runs/37100051527),
+  검증한 builder `a8f74d245654960c6b7f2692db4d5a6e7f0c8b09`.
+- 실제 upstream `46c62e51a311c89ee084ce14eb8071b6d81f765d`, 근거 `1.13.2-27-g46c62e5`.
+  표시 `1.13.2-snapshot`, CFBundleShortVersionString `1.13.2`,
+  CFBundleVersion/CURRENT_PROJECT_VERSION 및 pkg component/product `1.0.1`.
+- 지원 단위 테스트 16개, upstream Debug 테스트 45개(실패 0개), Release 빌드 성공.
+  표시용 About overlay가 실제로 컴파일됐습니다. 실제 Mac의 정보 창을 직접 열어 확인하거나
+  설치·입력 동작을 테스트한 것은 아닙니다.
+- Mach-O 5개 모두 arm64, 앱·Preferences 원본 entitlement와 ad-hoc 서명 검증,
+  포함 프레임워크 서명, pkg를 펼친 앱 서명 검증 성공. pkg는 `Status: no signature`, 공증 없음.
+- PackageInfo의 component 버전과 Distribution의 product/pkg-ref 버전은 모두 `1.0.1`.
+  설치 경로 `/Library/Input Methods`, relocatable=false, arm64 및 최소 macOS `11.0` 확인.
+  cask Ruby 구문과 생성된 artifact-inspection.json의 JSON 형식도 정상입니다.
+- [스냅샷 artifact](https://github.com/blood72/gureum-personal-snapshots/actions/runs/37100051527/artifacts/11266300212):
+  `gureum-snapshot-37100051527-1`, 10개 파일. 2026-10-17 14:35:51 KST까지 보관.
+  다운로드 후 체크섬 9개와 앱·Preferences·소스의 버전/metadata/lockfile,
+  cask tarball checksum, pkg XML까지 다시 검증했습니다.
+- 파일 stem:
+  `Gureum-1.13.2-snapshot-46c62e51a311c89ee084ce14eb8071b6d81f765d-arm64`.
+  app tar.gz, unsigned.pkg, source.tar.gz가 같은 stem을 사용합니다.
+- 앱 tar.gz SHA256: `c79d2cd2fe553687ff6e071ff1137512f30efed2e8e65bcecf4e387255435541`
+- unsigned pkg SHA256: `7b9f576c342869eb8878d99d2e6bfd454deef1d96996f7c5ec94bc67c127f338`
+- source tar.gz SHA256: `18274ce334f4b8b19a027a7c41befd0e97de66d05aa3cb5e00f2644b101c3bc1`
+- [진단 artifact](https://github.com/blood72/gureum-personal-snapshots/actions/runs/37100051527/artifacts/11265304653)는
+  7일 보관되며 실제 pkg XML, pkgbuild/productbuild man page, Xcode 로그와 xcresult,
+  서명·entitlement·아키텍처 검사를 포함합니다.
+- 소스 archive의 변경 diff는 GureumMenu의 About 표시와 생성된 Version.xcconfig뿐입니다.
+  Bundle.version, UpdateManager, 업데이트 설정 코드는 변경하지 않았습니다.
+- 로컬 Python/Bash 검사, ShellCheck 0.11.0, actionlint 1.7.12 및 단위 테스트 16개 통과.
+  기존 README의 개인용 목적과 사용 안내·면책 문구를 원문과 대조해 보존했습니다.
+
+Release job은 건너뛰었고 tap과 기존 산출물은 변경하지 않았습니다.
+라이선스 추가 검토, 실제 Mac 설치·입력 및 Homebrew 설치 테스트는 다음 작업으로 남습니다.
+이 결과 기록 이후의 문서 커밋은 위 검증한 builder 코드와 구분합니다.
