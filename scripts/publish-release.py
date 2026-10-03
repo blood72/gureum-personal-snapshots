@@ -20,7 +20,7 @@ def api_get(endpoint):
 
 def verify_payload(directory, builder_sha):
     data = json.loads((directory / "metadata.json").read_text())
-    expected = identity(data["upstream_sha"], str(data["build_revision"]))
+    expected = identity(data["upstream_sha"], str(data["build_revision"]), data["source_version"])
     if any(data[key] != value for key, value in expected.items()):
         raise ValueError("Inconsistent snapshot identity")
     if data["builder_repository"] != REPOSITORY or data["builder_sha"] != builder_sha:

@@ -7,7 +7,7 @@ import plistlib
 import sys
 import tarfile
 
-from snapshot import cask
+from snapshot import cask, verify_flat_pkg
 
 spec = importlib.util.spec_from_file_location(
     "publish_release", Path(__file__).with_name("publish-release.py"))
@@ -29,13 +29,17 @@ def verify(directory, builder_sha):
         info = plistlib.loads(archive_file(archive, "Gureum.app/Contents/Info.plist"))
         expected = {
             "CFBundleVersion": data["bundle_version"],
-            "CFBundleShortVersionString": data["bundle_version"],
+            "CFBundleShortVersionString": data["short_version"],
             "PersonalSnapshotVersion": data["version"],
             "PersonalSnapshotUpstreamSHA": data["upstream_sha"],
             "LSMinimumSystemVersion": data["minimum_macos"],
         }
         if any(info.get(key) != value for key, value in expected.items()):
             raise ValueError("Packaged app version/provenance mismatch")
+        preferences = plistlib.loads(archive_file(
+            archive, "Gureum.app/Contents/Resources/Preferences.prefPane/Contents/Info.plist"))
+        if any(preferences.get(key) != value for key, value in expected.items() if key != "LSMinimumSystemVersion"):
+            raise ValueError("Packaged Preferences version/provenance mismatch")
         resources = "Gureum.app/Contents/Resources/PersonalSnapshot"
         if json.loads(archive_file(archive, f"{resources}/metadata.json")) != data:
             raise ValueError("Packaged app metadata mismatch")
@@ -50,13 +54,13 @@ def verify(directory, builder_sha):
         archive_file(archive, "build-info/upstream-build-changes.diff")
     with tarfile.open(directory / "licenses.tar.gz") as archive:
         archive_file(archive, "licenses/gureum/COPYING")
-    with (directory / f"{stem}.unsigned.pkg").open("rb") as package:
-        if package.read(4) != b"xar!":
-            raise ValueError("Installer is not a flat XAR package")
+    verify_flat_pkg(directory / f"{stem}.unsigned.pkg", data)
     checksum = publish.sha256(directory / f"{stem}.app.tar.gz")
     if (directory / "gureum-snapshot.rb").read_text() != cask(data, checksum):
         raise ValueError("Cask does not match packaged app")
     return {"upstream_sha": data["upstream_sha"], "builder_sha": builder_sha,
+            "display_version": data["version"], "short_version": data["short_version"],
+            "bundle_version": data["bundle_version"], "pkg_version": data["pkg_version"],
             "files": names, "checksums_verified": len(names) - 1}
 
 

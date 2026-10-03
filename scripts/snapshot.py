@@ -9,11 +9,15 @@ import plistlib
 import re
 import shutil
 import subprocess
+import struct
 import sys
 import tarfile
+import xml.etree.ElementTree as ET
+import zlib
 
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 REVISION = re.compile(r"[1-9][0-9]{0,3}\Z")
+SOURCE_VERSION = re.compile(r"[1-9][0-9]{0,3}\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\Z")
 REPOSITORY = "blood72/gureum-personal-snapshots"
 SOURCE = Path("source")
 DIST = Path("dist")
@@ -35,17 +39,55 @@ def validate_inputs(ref, revision, publish=False, reviewed=False):
         raise ValueError("Releases can only be published from the builder repository's main branch")
 
 
-def identity(sha, revision):
-    if not SHA.fullmatch(sha) or not REVISION.fullmatch(revision):
-        raise ValueError("Invalid SHA or build revision")
-    version = sha if revision == "1" else f"{sha}-r{revision}"
-    return {"upstream_sha": sha, "build_revision": int(revision), "version": version,
+def identity(sha, revision, source_version):
+    if (not SHA.fullmatch(sha) or not REVISION.fullmatch(revision)
+            or not SOURCE_VERSION.fullmatch(source_version)):
+        raise ValueError("Invalid SHA, build revision or source version")
+    identifier = sha if revision == "1" else f"{sha}-r{revision}"
+    version = f"{source_version}-snapshot"
+    return {"upstream_sha": sha, "build_revision": int(revision),
+            "source_version": source_version, "version": version,
+            "short_version": source_version, "pkg_version": f"1.{int(revision) // 100}.{int(revision) % 100}",
             "bundle_version": f"1.{int(revision) // 100}.{int(revision) % 100}",
-            "tag": f"snapshot-{version}", "stem": f"Gureum-snapshot-{version}-arm64"}
+            "cask_version": f"{version},{identifier}",
+            "tag": f"snapshot-{identifier}", "stem": f"Gureum-{version}-{identifier}-arm64"}
+
+
+def source_version(repo):
+    """Use an explicit source version, otherwise the nearest release tag; never bump it."""
+    config = (repo / "OSX/Version.xcconfig").read_text()
+    explicit = re.findall(r"(?m)^\s*VERSION\s*=\s*([^\s/]+)\s*$", config)
+    if explicit:
+        if len(explicit) != 1 or not SOURCE_VERSION.fullmatch(explicit[0]):
+            raise ValueError("Unsupported explicit upstream VERSION; review instead of guessing")
+        return explicit[0], {"kind": "source-file", "path": "OSX/Version.xcconfig"}
+    description = run("git", "describe", "--tags", "--long", "HEAD", cwd=repo)
+    match = re.fullmatch(r"(?:GureumKIM-)?([0-9]+\.[0-9]+\.[0-9]+)(?:-[\w.]+)?-(\d+)-g[0-9a-f]+", description)
+    if not match or not SOURCE_VERSION.fullmatch(match[1]):
+        raise ValueError(f"Unsupported upstream tag version: {description}")
+    tag = run("git", "describe", "--tags", "--abbrev=0", "HEAD", cwd=repo)
+    return match[1], {"kind": "nearest-tag", "tag": tag, "describe": description,
+                      "commits_since_tag": int(match[2]), "policy": "no inferred next-version increment"}
+
+
+def prepare_source():
+    # Only the About panel gets the display version. Bundle.version and every updater
+    # call/comparison remain upstream code and continue reading numeric CFBundleVersion.
+    path = SOURCE / "OSX/GureumMenu.swift"
+    original = "    NSApp.orderFrontStandardAboutPanel(sender)"
+    replacement = '''    NSApp.orderFrontStandardAboutPanel(options: [
+      .applicationVersion: Bundle.main.object(forInfoDictionaryKey: "PersonalSnapshotVersion") as? String ?? "",
+    ])'''
+    text = path.read_text()
+    if text.count(original) != 1:
+        raise RuntimeError("Upstream About panel changed; review the display-only overlay")
+    path.write_text(text.replace(original, replacement))
 
 
 def metadata():
-    data = identity(run("git", "rev-parse", "HEAD", cwd=SOURCE), os.environ["BUILD_REVISION"])
+    version, evidence = source_version(SOURCE)
+    data = identity(run("git", "rev-parse", "HEAD", cwd=SOURCE), os.environ["BUILD_REVISION"], version)
+    data["version_evidence"] = evidence
     data.update({
         "upstream_repository": "gureum/gureum",
         "upstream_ref": os.environ["UPSTREAM_REF"],
@@ -62,6 +104,62 @@ def metadata():
 
 def load_metadata():
     return json.loads((DIST / "metadata.json").read_text())
+
+
+def verify_pkg_xml(packages, distribution, data):
+    if not packages:
+        raise RuntimeError("Expanded installer has no PackageInfo")
+    for package in packages:
+        if package.get("version") != data["pkg_version"]:
+            raise RuntimeError("Installer component version mismatch")
+        bundles = [bundle for bundle in package.findall("bundle")
+                   if bundle.get("id") == "org.youknowone.inputmethod.Gureum"]
+        if len(bundles) != 1 or any(bundle.get("CFBundleVersion") != data["bundle_version"]
+                                   or bundle.get("CFBundleShortVersionString") != data["short_version"]
+                                   for bundle in bundles):
+            raise RuntimeError("Installer bundle versions mismatch")
+    product = distribution.find("product")
+    if product is None or product.get("version") != data["pkg_version"]:
+        raise RuntimeError("Installer product version mismatch")
+    refs = [ref for ref in distribution.findall("pkg-ref") if ref.get("version") is not None]
+    if not refs or any(ref.get("version") != data["pkg_version"] for ref in refs):
+        raise RuntimeError("Installer distribution component version mismatch")
+    print(f'Installer numeric component/product versions: {data["pkg_version"]}')
+
+
+def verify_pkg_versions(directory, data):
+    verify_pkg_xml([ET.parse(path).getroot() for path in sorted(directory.rglob("PackageInfo"))],
+                   ET.parse(directory / "Distribution").getroot(), data)
+
+
+def verify_flat_pkg(path, data):
+    """Read only version XML from a flat XAR installer; do not execute/extract payloads."""
+    documents = {"PackageInfo": [], "Distribution": []}
+    with path.open("rb") as file:
+        magic, header_size, version, compressed_size, xml_size, _ = struct.unpack(
+            ">4sHHQQI", file.read(28))
+        if magic != b"xar!" or version != 1 or header_size < 28 or max(compressed_size, xml_size) > 16_000_000:
+            raise ValueError("Unsupported installer XAR header")
+        file.seek(header_size)
+        toc = ET.fromstring(zlib.decompress(file.read(compressed_size)))
+        for entry in toc.findall(".//file"):
+            name = entry.findtext("name")
+            if name in documents:
+                content = entry.find("data")
+                length, offset = int(content.findtext("length")), int(content.findtext("offset"))
+                if not 0 <= length <= 1_000_000 or offset < 0:
+                    raise ValueError("Invalid installer XML size/offset")
+                file.seek(header_size + compressed_size + offset)
+                raw = file.read(length)
+                encoding = content.find("encoding").get("style")
+                if encoding == "application/x-gzip":
+                    raw = zlib.decompress(raw)
+                elif encoding != "application/octet-stream":
+                    raise ValueError("Unsupported installer XML encoding")
+                documents[name].append(ET.fromstring(raw))
+    if len(documents["Distribution"]) != 1:
+        raise ValueError("Expected exactly one installer Distribution")
+    verify_pkg_xml(documents["PackageInfo"], documents["Distribution"][0], data)
 
 
 def git_repositories():
@@ -100,6 +198,8 @@ def provenance(app):
         info = plistlib.load(file)
     info["PersonalSnapshotVersion"] = data["version"]
     info["PersonalSnapshotUpstreamSHA"] = data["upstream_sha"]
+    info["CFBundleShortVersionString"] = data["short_version"]
+    info["CFBundleGetInfoString"] = f'{data["version"]}, {info.get("NSHumanReadableCopyright", "")}'
     resources = app / "Contents/Resources/PersonalSnapshot"
     resources.mkdir(parents=True, exist_ok=True)
     licenses = resources / "licenses"
@@ -126,6 +226,14 @@ def provenance(app):
     info["LSMinimumSystemVersion"] = data["minimum_macos"]
     with (app / "Contents/Info.plist").open("wb") as file:
         plistlib.dump(info, file)
+    preferences_info = app / "Contents/Resources/Preferences.prefPane/Contents/Info.plist"
+    with preferences_info.open("rb") as file:
+        preferences = plistlib.load(file)
+    preferences["CFBundleShortVersionString"] = data["short_version"]
+    preferences["PersonalSnapshotVersion"] = data["version"]
+    preferences["PersonalSnapshotUpstreamSHA"] = data["upstream_sha"]
+    with preferences_info.open("wb") as file:
+        plistlib.dump(preferences, file)
     data["toolchain"] = Path("diagnostics/toolchain.txt").read_text()
     locks = sorted(SOURCE.glob("Gureum.xcodeproj/**/Package.resolved"))
     if not locks:
@@ -156,12 +264,17 @@ def verify_app(app):
     data = load_metadata()
     with (app / "Contents/Info.plist").open("rb") as file:
         info = plistlib.load(file)
-    if info["CFBundleVersion"] != data["bundle_version"] or info["CFBundleShortVersionString"] != data["bundle_version"]:
+    if info["CFBundleVersion"] != data["bundle_version"] or info["CFBundleShortVersionString"] != data["short_version"]:
         raise RuntimeError("Built app numeric version differs from requested build revision")
     if info.get("PersonalSnapshotVersion") != data["version"] or info.get("PersonalSnapshotUpstreamSHA") != data["upstream_sha"]:
         raise RuntimeError("Built app lost snapshot commit metadata")
     if info.get("LSMinimumSystemVersion") != data["minimum_macos"]:
         raise RuntimeError("Built app minimum macOS differs from its dependencies")
+    with (app / "Contents/Resources/Preferences.prefPane/Contents/Info.plist").open("rb") as file:
+        preferences = plistlib.load(file)
+    for key in ("CFBundleVersion", "CFBundleShortVersionString", "PersonalSnapshotVersion", "PersonalSnapshotUpstreamSHA"):
+        if preferences.get(key) != info.get(key):
+            raise RuntimeError("Preferences bundle snapshot versions differ from app")
     with Path("diagnostics/entitlements.plist").open("rb") as file:
         actual = plistlib.load(file)
     with (SOURCE / "OSX/Gureum.entitlements").open("rb") as file:
@@ -229,7 +342,9 @@ def sha256(path):
 
 def cask(data, checksum):
     # Input is always validated SHA/revision; never interpolate arbitrary dispatch text.
-    identity(data["upstream_sha"], str(data["build_revision"]))
+    expected = identity(data["upstream_sha"], str(data["build_revision"]), data["source_version"])
+    if any(data.get(key) != value for key, value in expected.items()):
+        raise ValueError("Inconsistent snapshot versions")
     if not re.fullmatch(r"[0-9a-f]{64}", checksum):
         raise ValueError("Invalid tarball SHA256")
     minimum = data["minimum_macos"]
@@ -241,7 +356,7 @@ def cask(data, checksum):
     return f'''# Generated example; usable only after the matching GitHub Release is published.
 # Copy manually into a tap after reviewing DISTRIBUTION.md. No tap is updated here.
 cask "gureum-snapshot" do
-  version "{data['version']}"
+  version "{data['cask_version']}"
   sha256 "{checksum}"
 
   url "https://github.com/{REPOSITORY}/releases/download/{data['tag']}/{data['stem']}.app.tar.gz"
@@ -279,8 +394,11 @@ def finalize():
     (DIST / "RELEASE_NOTES.md").write_text(f'''# Gureum personal snapshot (unofficial)
 
 - Upstream: https://github.com/gureum/gureum/commit/{data['upstream_sha']}
-- Snapshot/cask version: `{data['version']}`
-- Numeric Apple bundle/build version: `{data['bundle_version']}` (full SHA in PersonalSnapshotVersion/PersonalSnapshotUpstreamSHA)
+- Display version: `{data['version']}` (About panel and PersonalSnapshotVersion)
+- Source version evidence: `{json.dumps(data['version_evidence'], sort_keys=True)}`
+- Cask version: `{data['cask_version']}`; immutable Release tag: `{data['tag']}`
+- CFBundleShortVersionString: `{data['short_version']}`; CFBundleVersion: `{data['bundle_version']}`; pkg: `{data['pkg_version']}`
+- Full upstream SHA: PersonalSnapshotUpstreamSHA, metadata and payload filenames.
 - Builder: https://github.com/{data['builder_repository']}/commit/{data['builder_sha']}
 - Build logs: {data['run_url']} (attempt {data['run_attempt']})
 - arm64 only; ad-hoc signed app, unsigned installer; not notarized; hardened runtime disabled.
@@ -298,6 +416,10 @@ any vendored binary dependencies require a separate rights/source review.
 
 Switch to a system input source before installing/upgrading. Log out and back in after
 installation; Input Monitoring may require re-approval. Do not double-click Gureum.app.
+Official update checks remain unchanged and compare numeric CFBundleVersion with the
+official feed for inequality, not ordering. Snapshots can still show official update
+notifications. In Gureum preferences, uncheck "업데이트 알림을 받겠습니다" under
+"업데이트 설정" to disable automatic notifications; manual update checks remain available.
 If macOS blocks the app, review the build and use macOS's app-specific security controls;
 this workflow does not disable Gatekeeper or clear quarantine automatically.
 
@@ -316,6 +438,10 @@ def main():
                         os.environ.get("DISTRIBUTION_REVIEWED") == "true")
     elif command == "metadata":
         metadata()
+    elif command == "prepare-source":
+        prepare_source()
+    elif command == "verify-pkg":
+        verify_pkg_versions(Path(sys.argv[2]), load_metadata())
     elif command == "provenance":
         provenance(Path(sys.argv[2]))
     elif command == "verify-app":
