@@ -61,20 +61,54 @@ Release 게시에는 마지막 두 옵션 모두 `true`가 필요하며 이 저�
 
 ## 산출물과 버전
 
-버전은 전체 upstream SHA이며, revision 2부터 `<SHA>-r2` 형태입니다.
-Apple의 숫자 형식에 맞추기 위해 앱의 CFBundleVersion/CFBundleShortVersionString은
-`1.<revision을 100으로 나눈 몫>.<나머지>`(기본 `1.0.1`)로 별도 기록합니다.
-이는 upstream의 공식 버전이나 커밋의 시간순 정렬을 뜻하지 않습니다.
-전체 SHA 버전은 앱 Info.plist의 `PersonalSnapshotVersion`/`PersonalSnapshotUpstreamSHA`와
-내장 metadata에 보존합니다.
-Release 태그는 `snapshot-<version>`이며 태그 대상은 **이 빌드 도구 저장소의 커밋**입니다.
-upstream 커밋은 별도로 metadata와 릴리스 노트에 기록합니다.
+표시용 버전은 소스의 `X.Y.Z`에 `-snapshot`을 붙입니다. 명시적인 숫자
+`OSX/Version.xcconfig`가 있으면 그 값을 사용하고, 현재처럼 생성용 빈 파일이면 upstream의
+`git describe --tags`가 선택하는 가장 가까운 태그에서 기본 버전을 읽습니다.
+모르는 형식이면 중단하며, 커밋이 추가됐다는 이유만으로 차기 버전을 추정하지 않습니다.
 
-- `Gureum-snapshot-<version>-arm64.app.tar.gz`: ad-hoc 서명된 `Gureum.app`
-- `Gureum-snapshot-<version>-arm64.unsigned.pkg`: 같은 앱을 `/Library/Input Methods`에 설치
-- `Gureum-snapshot-<version>-arm64.source.tar.gz`: 정확한 소스/서브모듈/SPM checkout 및 빌드 정보
+2026-10-03 확인한 main은 `1.13.2-27-g46c62e5`입니다. 최신 공식 stable Release도
+[`1.13.2`](https://github.com/gureum/gureum/releases/tag/1.13.2)이며, 버전 파일·전체 태그·릴리스에서
+차기 버전을 확정할 근거가 없어 **`1.13.2-snapshot`**을 적용합니다.
+이는 공식 차기 버전명이나 공식 릴리스가 아닙니다. 판단 근거는 `metadata.json`의
+`version_evidence`에 기록합니다.
+
+| 용도 | 기본 revision 1 값 | 관리 방식 |
+| --- | --- | --- |
+| 사람에게 표시하는 버전 | `1.13.2-snapshot` | 앱 정보 창, `CFBundleGetInfoString`, `PersonalSnapshotVersion`, 문서 |
+| `CFBundleShortVersionString` | `1.13.2` | 소스 기본 버전의 세 숫자, 접미사 없음 |
+| `CFBundleVersion` / `CURRENT_PROJECT_VERSION` | `1.0.1` | `1.<revision // 100>.<revision % 100>`, 빌드 식별용 숫자 |
+| pkg component / product 버전 | `1.0.1` | 숫자 빌드 버전, 생성한 PackageInfo/Distribution 검증 |
+| cask 버전 | `1.13.2-snapshot,<전체 SHA>` | 표시 버전과 원본 식별을 함께 보존 |
+| Release 태그 | `snapshot-<전체 SHA>` | 원본 SHA로 불변 식별, 태그 대상은 빌드 도구 저장소 커밋 |
+
+revision 2부터 cask의 SHA 부분·Release 태그·파일명의 SHA 뒤에 `-r2`를 붙입니다.
+표시 버전과 소스 기본 버전은 그대로이고 숫자 빌드/pkg 버전은 `1.0.2`가 됩니다.
+Apple의 숫자 버전은 공식 버전과의 시간순 비교를 뜻하지 않습니다.
+전체 SHA는 `PersonalSnapshotUpstreamSHA`, 내장/외부 metadata, 소스 묶음과 파일명에도 보존합니다.
+앱 정보 창만 표시용 키를 읽도록 작은 빌드 overlay를 적용하며 변경 diff를 소스 묶음에 기록합니다.
+`Bundle.version`과 공식 업데이트 기능은 변경하지 않습니다. 따라서 업데이트 대화상자의
+현재 버전 표시는 upstream이 읽는 숫자 `CFBundleVersion`입니다.
+
+- `Gureum-1.13.2-snapshot-<전체 SHA>[-rN]-arm64.app.tar.gz`: ad-hoc 서명된 `Gureum.app`
+- 같은 stem의 `.unsigned.pkg`: 같은 앱을 `/Library/Input Methods`에 설치
+- 같은 stem의 `.source.tar.gz`: 정확한 소스/서브모듈/SPM checkout 및 빌드 정보
 - `metadata.json`, `Package.resolved`, `licenses.tar.gz`, `DISTRIBUTION.md`
 - `SHA256SUMS`, `RELEASE_NOTES.md`, `gureum-snapshot.rb`
+
+## 공식 업데이트 알림
+
+upstream의 [UpdateManager](https://github.com/gureum/gureum/blob/46c62e51a311c89ee084ce14eb8071b6d81f765d/OSX/UpdateManager.swift)는
+공식 `gureum.io` 버전 정보와 `CFBundleVersion`을 읽어 **문자열이 서로 다르면** 자동 알림을
+보냅니다. 더 최신인지를 비교하지 않습니다. 이 빌드의 `1.0.1`은 공식 버전과 다를 수 있으므로
+스냅샷에서도 공식판 안내가 나타날 수 있습니다. 차기 버전이나 `-snapshot` 표기를 적용하는
+것만으로 이 문제가 해결되지는 않습니다. 공식판 안내는 개인 스냅샷 업데이트나 새 SHA의
+존재를 뜻하지 않으며, 안내 링크는 공식 배포 경로입니다.
+
+자동 알림을 끄려면 구름 입력기 메뉴의 **환경설정**을 열고 **업데이트 설정**의
+**“업데이트 알림을 받겠습니다”** 체크를 해제하세요. 실험 버전 체크만 해제하면 stable
+알림은 계속될 수 있습니다. 주 체크를 해제하면 실험 버전을 포함한 자동 조회/알림이
+중단됩니다. 메뉴의 수동 **업데이트 확인**·**최신 실험 버전 확인**은 별도이므로 계속
+공식 서버를 조회할 수 있습니다. 설정 기본값과 공식 업데이트 코드는 바꾸지 않았습니다.
 
 Release는 draft 상태로 파일을 올려 이름·크기·가능한 서버 체크섬을 확인한 후 prerelease로
 게시하며 latest로 지정하지 않습니다. 기존 태그·draft·Release는 수정하거나 덮어쓰지 않습니다.

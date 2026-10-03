@@ -154,3 +154,37 @@ Release 빌드/서명/패키징이 성공했다는 증거가 아닙니다.
 이번 설정 요청의 artifact 생성·다운로드 검증은 완료했습니다. Release job은 건너뛰었으며
 기존 Release/태그/산출물을 덮어쓰거나 삭제하지 않았습니다. tap도 변경하지 않았습니다.
 Release 게시, tap 수정 및 실제 Mac 설치·입력 테스트는 이번 CI 검증에 포함하지 않습니다.
+
+## 스냅샷 표시 버전 추가
+
+2026-10-03 upstream main, 모든 태그와 Release 목록을 다시 확인했습니다.
+`OSX/Version.xcconfig`는 `// Do not commit this file`만 있는 생성용 파일이며,
+프로젝트 빌드 단계는 `git describe --tags`에서 버전을 만듭니다.
+실제 describe는 `1.13.2-27-g46c62e5`, 가장 가까운 태그와 최신 stable Release는
+`1.13.2`입니다. 차기 버전을 지정한 파일·태그·릴리스가 없어 임의 증가 없이
+`1.13.2-snapshot`으로 표시합니다. 명시적 숫자 버전 파일이 있으면 그 근거를 우선합니다.
+
+버전 필드는 각각 관리합니다.
+
+- [CFBundleShortVersionString](https://developer.apple.com/documentation/bundleresources/information-property-list/cfbundleshortversionstring):
+  세 개의 점으로 구분한 숫자 버전이므로 `1.13.2`로 유지합니다.
+- [CFBundleVersion](https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html):
+  숫자 빌드 버전입니다. Apple이 문서화한 개발 접미사는 `d`, `a`, `b`, `fc`이며
+  임의의 `-snapshot`은 해당하지 않습니다. 기존 revision 규칙의 `1.0.1`을 유지합니다.
+- pkgbuild/productbuild: component/product 버전은 숫자 빌드 버전 `1.0.1`입니다.
+  Apple installer의 숫자 비교 규칙에 맞추며 임의 접미사를 사용하지 않습니다.
+  PackageInfo/Distribution의 실제 XML과 포함 앱의 두 버전 필드를 검사합니다.
+- 사용자 표시는 `PersonalSnapshotVersion`·`CFBundleGetInfoString`과 앱 정보 창의
+  `applicationVersion` 옵션으로 분리합니다. 숫자 필드 전체 문자열 치환은 하지 않습니다.
+- 파일명과 cask의 comma-separated 버전에 표시 버전과 전체 SHA를 함께 넣고,
+  기존 SHA 기반 Release 태그와 revision 규칙을 유지합니다.
+
+upstream `Bundle.version`은 CFBundleVersion을 읽습니다. UpdateManager의 자동 알림과
+GureumMenu의 수동 확인은 공식 feed와의 문자열 불일치를 기준으로 동작합니다.
+해당 접근자·업데이트 조회·비교·설정은 수정하지 않습니다. About panel에 전달하는
+표시 옵션만 overlay로 수정하며, 빌드 후 보호 대상 파일의 git diff가 없는지 검사합니다.
+`Configuration.updateMode`는 주 알림 설정이 false면 nil을 반환하므로 README의
+알림 해제 방법은 Preferences.xib의 실제 체크박스 문구와 해당 코드에 근거합니다.
+
+라이선스·LGPL 재링크 자료·로고/아이콘 이용 조건의 추가 검토는 다음 작업으로 남습니다.
+이번 버전 변경과 기존 고지 보존은 라이선스 검토 완료나 배포 권한 확인을 뜻하지 않습니다.

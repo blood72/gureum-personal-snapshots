@@ -31,7 +31,10 @@ if any(actual.get(key) != value for key, value in expected.items()):
 print('Mach-O bundle signing/entitlements probe: passed')
 PY
 
+python3 scripts/snapshot.py prepare-source
 version=$(python3 -c 'import json; print(json.load(open("dist/metadata.json"))["bundle_version"])')
+short_version=$(python3 -c 'import json; print(json.load(open("dist/metadata.json"))["short_version"])')
+pkg_version=$(python3 -c 'import json; print(json.load(open("dist/metadata.json"))["pkg_version"])')
 root="$PWD"
 common=(
   -project "$root/source/Gureum.xcodeproj" -scheme OSX -sdk macosx
@@ -41,7 +44,7 @@ common=(
   MACOSX_DEPLOYMENT_TARGET=11.0
   CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM=
   ENABLE_HARDENED_RUNTIME=NO
-  "VERSION=$version" "CURRENT_PROJECT_VERSION=$version" "MARKETING_VERSION=$version"
+  "VERSION=$version" "CURRENT_PROJECT_VERSION=$version" "MARKETING_VERSION=$short_version"
 )
 
 # Resolve once, then require that same lockfile during both configurations.
@@ -105,12 +108,17 @@ python3 scripts/snapshot.py verify-app "$app"
 stem=$(python3 -c 'import json; print(json.load(open("dist/metadata.json"))["stem"])')
 # tar preserves app symlinks/modes; never upload the bare .app with upload-artifact.
 COPYFILE_DISABLE=1 tar -czf "dist/$stem.app.tar.gz" -C "$(dirname "$app")" Gureum.app
-productbuild --component "$app" '/Library/Input Methods' "dist/$stem.unsigned.pkg"
+productbuild --version "$pkg_version" --component "$app" '/Library/Input Methods' "dist/$stem.unsigned.pkg"
 python3 scripts/snapshot.py finalize
 python3 scripts/verify-artifacts.py dist "$GITHUB_SHA" | tee diagnostics/artifact-inspection.json
 # Expand the installer to ensure productbuild preserved the signed app payload.
 pkg_inspection="$root/build/pkg-inspection"
 pkgutil --expand-full "dist/$stem.unsigned.pkg" "$pkg_inspection"
+python3 scripts/snapshot.py verify-pkg "$pkg_inspection" | tee diagnostics/pkg-versions.txt
+# Record installed tool documentation and ensure official update logic stayed intact.
+MANWIDTH=100 man pkgbuild | col -b > diagnostics/pkgbuild-man.txt
+git -C source diff --exit-code -- OSX/UpdateManager.swift OSXCore/BundleVersion.swift \
+  OSXCore/Configuration.swift Preferences/PreferenceViewController.swift
 packaged_app=$(find "$pkg_inspection" -type d -name Gureum.app)
 [[ -n "$packaged_app" && -d "$packaged_app" ]]
 cmp "$app/Contents/Info.plist" "$packaged_app/Contents/Info.plist"
